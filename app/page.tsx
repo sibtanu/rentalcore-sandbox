@@ -11,22 +11,18 @@ async function createGroup(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   if (!name) return;
 
-  const { data: max, error: maxErr } = await supabase
+  const { data: max } = await supabase
     .from("inventory_groups")
     .select("display_order")
     .order("display_order", { ascending: false })
     .limit(1)
     .single();
 
-  if (maxErr) throw new Error(maxErr.message);
-
-  const { error } = await supabase.from("inventory_groups").insert({
+  await supabase.from("inventory_groups").insert({
     name,
     tenant_id: "11111111-1111-1111-1111-111111111111",
     display_order: (max?.display_order ?? 0) + 1,
   });
-
-  if (error) throw new Error(error.message);
 
   revalidatePath("/");
 }
@@ -40,10 +36,9 @@ async function createItem(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   const groupId = String(formData.get("group_id"));
   const isSerialized = formData.get("is_serialized") === "on";
-
   if (!name || !groupId) return;
 
-  const { data: max, error: maxErr } = await supabase
+  const { data: max } = await supabase
     .from("inventory_items")
     .select("display_order")
     .eq("group_id", groupId)
@@ -51,12 +46,10 @@ async function createItem(formData: FormData) {
     .limit(1)
     .single();
 
-  if (maxErr) throw new Error(maxErr.message);
-
-  const { error } = await supabase.from("inventory_items").insert({
+  await supabase.from("inventory_items").insert({
     name,
-    category: "General", // REQUIRED
-    price: 0, // REQUIRED
+    category: "General",
+    price: 0,
     group_id: groupId,
     is_serialized: isSerialized,
     active: true,
@@ -64,13 +57,11 @@ async function createItem(formData: FormData) {
     display_order: (max?.display_order ?? 0) + 1,
   });
 
-  if (error) throw new Error(error.message);
-
   revalidatePath("/");
 }
 
 /* =========================
-   CREATE STOCK (NON-SERIALIZED)
+   CREATE STOCK
 ========================= */
 async function createStock(formData: FormData) {
   "use server";
@@ -78,10 +69,9 @@ async function createStock(formData: FormData) {
   const itemId = String(formData.get("item_id"));
   const total = Number(formData.get("total_quantity"));
   const out = Number(formData.get("out_of_service_quantity") || 0);
-
   if (!itemId || Number.isNaN(total)) return;
 
-  const { error } = await supabase.from("inventory_stock").insert({
+  await supabase.from("inventory_stock").insert({
     item_id: itemId,
     location_id: "22222222-2222-2222-2222-222222222222",
     total_quantity: total,
@@ -89,7 +79,50 @@ async function createStock(formData: FormData) {
     tenant_id: "11111111-1111-1111-1111-111111111111",
   });
 
-  if (error) throw new Error(error.message);
+  revalidatePath("/");
+}
+
+/* =========================
+   MOVE ITEM (UP / DOWN)
+========================= */
+async function moveItem(formData: FormData) {
+  "use server";
+
+  const itemId = String(formData.get("item_id"));
+  const direction = String(formData.get("direction"));
+
+  const { data: current } = await supabase
+    .from("inventory_items")
+    .select("id, group_id, display_order")
+    .eq("id", itemId)
+    .single();
+
+  if (!current) return;
+
+  const operator = direction === "up" ? "lt" : "gt";
+  const orderByAsc = direction === "up";
+
+  const { data: neighbor } = await supabase
+    .from("inventory_items")
+    .select("id, display_order")
+    .eq("group_id", current.group_id)
+    .filter("display_order", operator, current.display_order)
+    .order("display_order", { ascending: orderByAsc })
+    .limit(1)
+    .single();
+
+  if (!neighbor) return;
+
+  // swap orders
+  await supabase
+    .from("inventory_items")
+    .update({ display_order: neighbor.display_order })
+    .eq("id", current.id);
+
+  await supabase
+    .from("inventory_items")
+    .update({ display_order: current.display_order })
+    .eq("id", neighbor.id);
 
   revalidatePath("/");
 }
@@ -129,38 +162,32 @@ export default async function Home() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid #ccc" }}>
-                <th style={{ textAlign: "left" }}>Item Name</th>
+                <th style={{ textAlign: "left" }}>Item</th>
+                <th style={{ textAlign: "center" }}>Order</th>
                 <th style={{ textAlign: "right" }}>Available / Total</th>
               </tr>
             </thead>
             <tbody>
               {group.items.map((item) => (
                 <tr key={item.id} style={{ borderBottom: "1px solid #eee" }}>
-                  <td>
-                    {item.name}
+                  <td>{item.name}</td>
 
-                    {item.total === 0 && (
-                      <form action={createStock} style={{ marginTop: 6 }}>
-                        <input type="hidden" name="item_id" value={item.id} />
-                        <input
-                          type="number"
-                          name="total_quantity"
-                          placeholder="Total"
-                          required
-                        />
-                        <input
-                          type="number"
-                          name="out_of_service_quantity"
-                          placeholder="Out"
-                          defaultValue={0}
-                          style={{ marginLeft: 6 }}
-                        />
-                        <button type="submit" style={{ marginLeft: 6 }}>
-                          Set Stock
-                        </button>
-                      </form>
-                    )}
+                  <td style={{ textAlign: "center" }}>
+                    <form action={moveItem} style={{ display: "inline" }}>
+                      <input type="hidden" name="item_id" value={item.id} />
+                      <input type="hidden" name="direction" value="up" />
+                      <button type="submit">↑</button>
+                    </form>
+                    <form
+                      action={moveItem}
+                      style={{ display: "inline", marginLeft: 4 }}
+                    >
+                      <input type="hidden" name="item_id" value={item.id} />
+                      <input type="hidden" name="direction" value="down" />
+                      <button type="submit">↓</button>
+                    </form>
                   </td>
+
                   <td style={{ textAlign: "right" }}>
                     {item.available} / {item.total}
                   </td>

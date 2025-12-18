@@ -32,7 +32,7 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
     `,
     )
     .eq("active", true)
-    .order("name");
+    .order("display_order");
 
   if (itemsError) {
     console.error("Error fetching inventory items:", itemsError);
