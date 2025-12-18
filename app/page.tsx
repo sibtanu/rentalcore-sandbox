@@ -134,7 +134,7 @@ export default async function Home() {
   const inventoryGroups = await getInventoryData();
 
   return (
-    <main style={{ padding: 24 }}>
+    <main className="p-6 bg-blue-200">
       <h1>Inventory List</h1>
 
       <form action={createGroup} style={{ marginBottom: 24 }}>
