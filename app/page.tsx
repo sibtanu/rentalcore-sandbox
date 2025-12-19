@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getInventoryData } from "@/lib/inventory";
-import InventoryGroupCard from "./components/InventoryGroupCard";
+import SortableGroupsList from "./components/SortableGroupsList";
 
 /* =========================
    CREATE GROUP
@@ -62,46 +62,48 @@ async function createItem(formData: FormData) {
 }
 
 /* =========================
-   MOVE ITEM (UP / DOWN)
+   REORDER GROUPS
 ========================= */
-async function moveItem(formData: FormData) {
+async function reorderGroups(formData: FormData) {
   "use server";
 
-  const itemId = String(formData.get("item_id"));
-  const direction = String(formData.get("direction"));
+  const groupOrdersJson = String(formData.get("group_orders") || "{}");
+  const groupOrders = JSON.parse(groupOrdersJson) as Record<string, number>;
 
-  const { data: current } = await supabase
-    .from("inventory_items")
-    .select("id, group_id, display_order")
-    .eq("id", itemId)
-    .single();
+  // Update all groups in a transaction-like manner
+  const updates = Object.entries(groupOrders).map(([groupId, displayOrder]) =>
+    supabase
+      .from("inventory_groups")
+      .update({ display_order: displayOrder })
+      .eq("id", groupId),
+  );
 
-  if (!current) return;
+  await Promise.all(updates);
+  revalidatePath("/");
+}
 
-  const operator = direction === "up" ? "lt" : "gt";
-  const orderByAsc = direction === "up";
+/* =========================
+   REORDER ITEMS
+========================= */
+async function reorderItems(formData: FormData) {
+  "use server";
 
-  const { data: neighbor } = await supabase
-    .from("inventory_items")
-    .select("id, display_order")
-    .eq("group_id", current.group_id)
-    .filter("display_order", operator, current.display_order)
-    .order("display_order", { ascending: orderByAsc })
-    .limit(1)
-    .single();
+  const itemOrdersJson = String(formData.get("item_orders") || "{}");
+  const itemOrders = JSON.parse(itemOrdersJson) as Record<string, number>;
+  const groupId = String(formData.get("group_id"));
 
-  if (!neighbor) return;
+  if (!groupId) return;
 
-  await supabase
-    .from("inventory_items")
-    .update({ display_order: neighbor.display_order })
-    .eq("id", current.id);
+  // Update all items in the group
+  const updates = Object.entries(itemOrders).map(([itemId, displayOrder]) =>
+    supabase
+      .from("inventory_items")
+      .update({ display_order: displayOrder })
+      .eq("id", itemId)
+      .eq("group_id", groupId),
+  );
 
-  await supabase
-    .from("inventory_items")
-    .update({ display_order: current.display_order })
-    .eq("id", neighbor.id);
-
+  await Promise.all(updates);
   revalidatePath("/");
 }
 
@@ -248,18 +250,16 @@ export default async function Home() {
           </div>
         </form>
 
-        {inventoryGroups.map((group) => (
-          <InventoryGroupCard
-            key={group.id}
-            group={group}
-            createItem={createItem}
-            moveItem={moveItem}
-            updateItem={updateItem}
-            updateStock={updateStock}
-            addMaintenanceLog={addMaintenanceLog}
-            updateUnitStatus={updateUnitStatus}
-          />
-        ))}
+        <SortableGroupsList
+          groups={inventoryGroups}
+          createItem={createItem}
+          updateItem={updateItem}
+          updateStock={updateStock}
+          addMaintenanceLog={addMaintenanceLog}
+          updateUnitStatus={updateUnitStatus}
+          reorderGroups={reorderGroups}
+          reorderItems={reorderItems}
+        />
       </div>
     </main>
   );

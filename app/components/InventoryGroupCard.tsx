@@ -1,8 +1,26 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { InventoryGroup, InventoryItem } from "@/lib/inventory";
 import { supabase } from "@/lib/supabase";
+import SortableItemRow from "./SortableItemRow";
 
 interface Unit {
   id: string;
@@ -31,17 +49,20 @@ interface InventoryGroupCardProps {
   updateStock: (formData: FormData) => Promise<void>;
   addMaintenanceLog: (formData: FormData) => Promise<void>;
   updateUnitStatus: (formData: FormData) => Promise<void>;
+  reorderItems: (formData: FormData) => Promise<void>;
 }
 
 export default function InventoryGroupCard({
-  group,
+  group: initialGroup,
   createItem,
   moveItem,
   updateItem,
   updateStock,
   addMaintenanceLog,
   updateUnitStatus,
+  reorderItems,
 }: InventoryGroupCardProps) {
+  const [group, setGroup] = useState(initialGroup);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [localItem, setLocalItem] = useState<InventoryItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -66,6 +87,64 @@ export default function InventoryGroupCard({
   const [lastFetchedItemId, setLastFetchedItemId] = useState<string | null>(
     null,
   );
+  const [mounted, setMounted] = useState(false);
+
+  // Only render DndContext on client to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  // Update group when prop changes (but preserve local state during drag)
+  useEffect(() => {
+    // Only update if the group ID changed or items count changed significantly
+    if (
+      initialGroup.id !== group.id ||
+      Math.abs(initialGroup.items.length - group.items.length) > 0
+    ) {
+      setGroup(initialGroup);
+    }
+  }, [initialGroup.id, initialGroup.items.length]);
+
+  const handleItemDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = group.items.findIndex((item) => item.id === active.id);
+    const newIndex = group.items.findIndex((item) => item.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    // Optimistic update
+    const newItems = arrayMove(group.items, oldIndex, newIndex);
+    setGroup({ ...group, items: newItems });
+
+    // Update display_order values
+    const itemOrders: Record<string, number> = {};
+    newItems.forEach((item: InventoryItem, index: number) => {
+      itemOrders[item.id] = index;
+    });
+
+    const formData = new FormData();
+    formData.append("group_id", group.id);
+    formData.append("item_orders", JSON.stringify(itemOrders));
+
+    try {
+      await reorderItems(formData);
+    } catch (error) {
+      console.error("Error reordering items:", error);
+      // Revert on error - restore from current group state before optimistic update
+      setGroup(initialGroup);
+    }
+  };
 
   useEffect(() => {
     if (selectedItem) {
@@ -527,73 +606,78 @@ export default function InventoryGroupCard({
         </div>
       </form>
 
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b-2 border-gray-300">
-              <th className="text-left py-3 px-4 font-semibold text-gray-700">
-                Item
-              </th>
-              <th className="text-center py-3 px-4 font-semibold text-gray-700">
-                Order
-              </th>
-              <th className="text-right py-3 px-4 font-semibold text-gray-700">
-                Available / Total
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {group.items.map((item) => (
-              <tr
-                key={item.id}
-                onClick={() => setSelectedItem(item)}
-                className="border-b border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
+      {mounted ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleItemDragEnd}
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b-2 border-gray-300">
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">
+                    Item
+                  </th>
+                  <th className="text-right py-3 px-4 font-semibold text-gray-700">
+                    Available / Total
+                  </th>
+                </tr>
+              </thead>
+              <SortableContext
+                items={group.items.map((item) => item.id)}
+                strategy={verticalListSortingStrategy}
               >
-                <td className="py-3 px-4 text-gray-900 font-medium flex items-center gap-2">
-                  {item.name}
-                  {item.total === 0 && (
-                    <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded">
-                      Needs stock
-                    </span>
-                  )}
-                </td>
-
-                <td className="py-3 px-4 text-center">
-                  <div
-                    className="flex gap-1 justify-center"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <form action={moveItem} className="inline">
-                      <input type="hidden" name="item_id" value={item.id} />
-                      <input type="hidden" name="direction" value="up" />
-                      <button
-                        type="submit"
-                        className="px-2 py-1 bg-white border border-gray-300 hover:bg-gray-100 hover:border-gray-400 rounded text-sm transition-colors font-semibold text-gray-700 shadow-sm"
-                      >
-                        ↑
-                      </button>
-                    </form>
-                    <form action={moveItem} className="inline">
-                      <input type="hidden" name="item_id" value={item.id} />
-                      <input type="hidden" name="direction" value="down" />
-                      <button
-                        type="submit"
-                        className="px-2 py-1 bg-white border border-gray-300 hover:bg-gray-100 hover:border-gray-400 rounded text-sm transition-colors font-semibold text-gray-700 shadow-sm"
-                      >
-                        ↓
-                      </button>
-                    </form>
-                  </div>
-                </td>
-
-                <td className="py-3 px-4 text-right text-gray-700 font-mono">
-                  {item.available} / {item.total}
-                </td>
+                <tbody>
+                  {group.items.map((item) => (
+                    <SortableItemRow
+                      key={item.id}
+                      item={item}
+                      onItemClick={setSelectedItem}
+                    />
+                  ))}
+                </tbody>
+              </SortableContext>
+            </table>
+          </div>
+        </DndContext>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b-2 border-gray-300">
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">
+                  Item
+                </th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-700">
+                  Available / Total
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {group.items.map((item) => (
+                <tr
+                  key={item.id}
+                  onClick={() => setSelectedItem(item)}
+                  className="border-b border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
+                >
+                  <td className="py-3 px-4 text-gray-900 font-medium flex items-center gap-2">
+                    {item.name}
+                    {item.total === 0 && (
+                      <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded">
+                        Needs stock
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-right text-gray-700 font-mono">
+                    {item.available} / {item.total}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Drawer */}
       {selectedItem && localItem && (
