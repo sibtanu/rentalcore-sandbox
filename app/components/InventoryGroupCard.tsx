@@ -63,15 +63,17 @@ export default function InventoryGroupCard({
   const [updatingUnitId, setUpdatingUnitId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const [lastFetchedItemId, setLastFetchedItemId] = useState<string | null>(null);
+  const [lastFetchedItemId, setLastFetchedItemId] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (selectedItem) {
       const itemId = selectedItem.id;
       const wasOpen = isDrawerOpen;
-      
+
       setLocalItem(selectedItem);
-      
+
       // Only trigger animation if drawer wasn't already open
       if (!wasOpen) {
         setTimeout(() => setIsDrawerOpen(true), 10);
@@ -81,7 +83,7 @@ export default function InventoryGroupCard({
       // This prevents refetching when selectedItem is updated optimistically
       if (itemId !== lastFetchedItemId) {
         setLastFetchedItemId(itemId);
-        
+
         // Fetch units if item is serialized
         if (selectedItem.is_serialized) {
           fetchUnits(selectedItem.id);
@@ -350,7 +352,9 @@ export default function InventoryGroupCard({
 
     // Optimistic update
     const updatedUnits = units.map((unit) =>
-      unit.id === unitId ? { ...unit, status: newStatus as Unit["status"] } : unit,
+      unit.id === unitId
+        ? { ...unit, status: newStatus as Unit["status"] }
+        : unit,
     );
     setUnits(updatedUnits);
 
@@ -944,7 +948,10 @@ export default function InventoryGroupCard({
                                     {unit.status === "available" && (
                                       <button
                                         onClick={() =>
-                                          handleUnitStatusChange(unit.id, unit.status)
+                                          handleUnitStatusChange(
+                                            unit.id,
+                                            unit.status,
+                                          )
                                         }
                                         disabled={updatingUnitId === unit.id}
                                         className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -957,7 +964,10 @@ export default function InventoryGroupCard({
                                     {unit.status === "out" && (
                                       <button
                                         onClick={() =>
-                                          handleUnitStatusChange(unit.id, unit.status)
+                                          handleUnitStatusChange(
+                                            unit.id,
+                                            unit.status,
+                                          )
                                         }
                                         disabled={updatingUnitId === unit.id}
                                         className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
