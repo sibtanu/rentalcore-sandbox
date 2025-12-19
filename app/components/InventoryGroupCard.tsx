@@ -2,6 +2,15 @@
 
 import { useState, useEffect } from "react";
 import type { InventoryGroup, InventoryItem } from "@/lib/inventory";
+import { supabase } from "@/lib/supabase";
+
+interface Unit {
+  id: string;
+  serial_number: string;
+  barcode: string;
+  status: "available" | "out" | "maintenance";
+  location_name: string;
+}
 
 interface InventoryGroupCardProps {
   group: InventoryGroup;
@@ -20,28 +29,81 @@ export default function InventoryGroupCard({
   const [localItem, setLocalItem] = useState<InventoryItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingField, setEditingField] = useState<"name" | "price" | null>(
-    null
+    null,
   );
   const [isSaving, setIsSaving] = useState(false);
   const [editValue, setEditValue] = useState<string>("");
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [isLoadingUnits, setIsLoadingUnits] = useState(false);
 
   useEffect(() => {
     if (selectedItem) {
       setLocalItem(selectedItem);
       // Trigger animation after DOM update
       setTimeout(() => setIsDrawerOpen(true), 10);
+
+      // Fetch units if item is serialized
+      if (selectedItem.is_serialized) {
+        fetchUnits(selectedItem.id);
+      } else {
+        setUnits([]);
+      }
     } else {
       setIsDrawerOpen(false);
       setLocalItem(null);
       setEditingField(null);
+      setUnits([]);
     }
   }, [selectedItem]);
+
+  const fetchUnits = async (itemId: string) => {
+    setIsLoadingUnits(true);
+    try {
+      const { data: unitsData, error } = await supabase
+        .from("inventory_units")
+        .select(
+          `
+          id,
+          serial_number,
+          barcode,
+          status,
+          locations:location_id (
+            name
+          )
+        `,
+        )
+        .eq("item_id", itemId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching units:", error);
+        setUnits([]);
+        return;
+      }
+
+      const formattedUnits: Unit[] =
+        unitsData?.map((unit: any) => ({
+          id: unit.id,
+          serial_number: unit.serial_number,
+          barcode: unit.barcode,
+          status: unit.status,
+          location_name: unit.locations?.name || "Unknown",
+        })) || [];
+
+      setUnits(formattedUnits);
+    } catch (error) {
+      console.error("Error fetching units:", error);
+      setUnits([]);
+    } finally {
+      setIsLoadingUnits(false);
+    }
+  };
 
   const handleStartEdit = (field: "name" | "price") => {
     if (!localItem) return;
     setEditingField(field);
     setEditValue(
-      field === "name" ? localItem.name : localItem.price.toString()
+      field === "name" ? localItem.name : localItem.price.toString(),
     );
   };
 
@@ -240,31 +302,34 @@ export default function InventoryGroupCard({
           >
             <div className="h-full flex flex-col">
               {/* Header */}
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                {editingField === "name" ? (
-                  <input
-                    type="text"
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onBlur={handleSave}
-                    autoFocus
-                    disabled={isSaving}
-                    className="flex-1 text-xl font-bold text-gray-900 bg-transparent border-b-2 border-blue-500 focus:outline-none"
-                  />
-                ) : (
-                  <h3
-                    onClick={() => handleStartEdit("name")}
-                    className="text-xl font-bold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
-                  >
-                    {localItem.name}
-                    {isSaving && (
-                      <span className="ml-2 text-sm text-gray-500">
-                        Saving...
-                      </span>
-                    )}
-                  </h3>
-                )}
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  {editingField === "name" ? (
+                    <input
+                      type="text"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onBlur={handleSave}
+                      autoFocus
+                      disabled={isSaving}
+                      className="w-full text-xl font-bold text-gray-900 bg-transparent border-b-2 border-blue-500 focus:outline-none"
+                    />
+                  ) : (
+                    <h3
+                      onClick={() => handleStartEdit("name")}
+                      className="text-xl font-bold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors line-clamp-2"
+                      title={localItem.name}
+                    >
+                      {localItem.name}
+                      {isSaving && (
+                        <span className="ml-2 text-sm text-gray-500">
+                          Saving...
+                        </span>
+                      )}
+                    </h3>
+                  )}
+                </div>
                 <button
                   onClick={() => {
                     if (!editingField) {
@@ -365,10 +430,79 @@ export default function InventoryGroupCard({
                   {/* Units (only if serialized) */}
                   {localItem.is_serialized && (
                     <div>
-                      <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">
                         Units
                       </h4>
-                      <p className="text-gray-600">Placeholder</p>
+                      {isLoadingUnits ? (
+                        <div className="text-sm text-gray-500 py-4">
+                          Loading units...
+                        </div>
+                      ) : units.length === 0 ? (
+                        <div className="text-sm text-gray-500 py-4">
+                          No units found
+                        </div>
+                      ) : (
+                        <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-md">
+                          <table className="w-full border-collapse text-sm">
+                            <thead className="sticky top-0 bg-white z-10">
+                              <tr className="border-b border-gray-300">
+                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
+                                  Serial Number
+                                </th>
+                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
+                                  Barcode
+                                </th>
+                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
+                                  Status
+                                </th>
+                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
+                                  Location
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {units.map((unit) => (
+                                <tr
+                                  key={unit.id}
+                                  className="border-b border-gray-200 hover:bg-gray-50 transition-colors"
+                                >
+                                  <td
+                                    className="py-2 px-3 text-gray-900 truncate max-w-[120px]"
+                                    title={unit.serial_number}
+                                  >
+                                    {unit.serial_number}
+                                  </td>
+                                  <td
+                                    className="py-2 px-3 text-gray-900 font-mono truncate max-w-[120px]"
+                                    title={unit.barcode}
+                                  >
+                                    {unit.barcode}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    <span
+                                      className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                        unit.status === "available"
+                                          ? "bg-green-100 text-green-800"
+                                          : unit.status === "out"
+                                            ? "bg-red-100 text-red-800"
+                                            : "bg-yellow-100 text-yellow-800"
+                                      }`}
+                                    >
+                                      {unit.status}
+                                    </span>
+                                  </td>
+                                  <td
+                                    className="py-2 px-3 text-gray-700 truncate max-w-[120px]"
+                                    title={unit.location_name}
+                                  >
+                                    {unit.location_name}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
