@@ -106,6 +106,26 @@ async function moveItem(formData: FormData) {
 }
 
 /* =========================
+   UPDATE ITEM
+========================= */
+async function updateItem(formData: FormData) {
+  "use server";
+
+  const itemId = String(formData.get("item_id"));
+  const name = String(formData.get("name") || "").trim();
+  const price = Number(formData.get("price"));
+
+  if (!name || price < 0 || Number.isNaN(price)) return;
+
+  await supabase
+    .from("inventory_items")
+    .update({ name, price })
+    .eq("id", itemId);
+
+  revalidatePath("/");
+}
+
+/* =========================
    PAGE
 ========================= */
 export default async function Home() {
@@ -141,6 +161,7 @@ export default async function Home() {
             group={group}
             createItem={createItem}
             moveItem={moveItem}
+            updateItem={updateItem}
           />
         ))}
       </div>

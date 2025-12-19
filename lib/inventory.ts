@@ -7,6 +7,7 @@ export interface InventoryItem {
   total: number;
   group_id: string;
   is_serialized: boolean;
+  price: number;
 }
 
 export interface InventoryGroup {
@@ -34,7 +35,7 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
   // Fetch all active inventory items separately, ordered by display_order
   const { data: items, error: itemsError } = await supabase
     .from("inventory_items")
-    .select("id, name, group_id, is_serialized, active")
+    .select("id, name, group_id, is_serialized, active, price")
     .eq("active", true)
     .order("display_order");
 
@@ -135,6 +136,7 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
       total,
       group_id: item.group_id,
       is_serialized: item.is_serialized,
+      price: item.price || 0,
     });
   });
 
@@ -151,6 +153,7 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
       total: item.total,
       group_id: item.group_id,
       is_serialized: item.is_serialized,
+      price: item.price,
     });
   });
 

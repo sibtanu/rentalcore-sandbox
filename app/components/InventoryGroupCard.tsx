@@ -7,28 +7,105 @@ interface InventoryGroupCardProps {
   group: InventoryGroup;
   createItem: (formData: FormData) => Promise<void>;
   moveItem: (formData: FormData) => Promise<void>;
+  updateItem: (formData: FormData) => Promise<void>;
 }
 
 export default function InventoryGroupCard({
   group,
   createItem,
   moveItem,
+  updateItem,
 }: InventoryGroupCardProps) {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+  const [localItem, setLocalItem] = useState<InventoryItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [editingField, setEditingField] = useState<"name" | "price" | null>(
+    null
+  );
+  const [isSaving, setIsSaving] = useState(false);
+  const [editValue, setEditValue] = useState<string>("");
 
   useEffect(() => {
     if (selectedItem) {
+      setLocalItem(selectedItem);
       // Trigger animation after DOM update
       setTimeout(() => setIsDrawerOpen(true), 10);
     } else {
       setIsDrawerOpen(false);
+      setLocalItem(null);
+      setEditingField(null);
     }
   }, [selectedItem]);
 
+  const handleStartEdit = (field: "name" | "price") => {
+    if (!localItem) return;
+    setEditingField(field);
+    setEditValue(
+      field === "name" ? localItem.name : localItem.price.toString()
+    );
+  };
+
+  const handleCancelEdit = () => {
+    setEditingField(null);
+    setEditValue("");
+  };
+
+  const handleSave = async () => {
+    if (!localItem || !editingField) return;
+
+    const field = editingField;
+
+    // Validation
+    if (field === "name" && !editValue.trim()) return;
+    if (field === "price") {
+      const numValue = Number(editValue);
+      if (Number.isNaN(numValue) || numValue < 0) {
+        handleCancelEdit();
+        return;
+      }
+    }
+
+    setIsSaving(true);
+
+    // Optimistic update
+    const updatedItem = {
+      ...localItem,
+      [field]: field === "name" ? editValue.trim() : Number(editValue),
+    };
+    setLocalItem(updatedItem);
+
+    // Save to server
+    const formData = new FormData();
+    formData.append("item_id", localItem.id);
+    formData.append("name", updatedItem.name);
+    formData.append("price", updatedItem.price.toString());
+
+    try {
+      await updateItem(formData);
+      setSelectedItem(updatedItem); // Update selectedItem so it persists
+      setEditingField(null);
+      setEditValue("");
+    } catch (error) {
+      // Revert on error
+      setLocalItem(selectedItem);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleCancelEdit();
+    }
+  };
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !editingField) {
         setSelectedItem(null);
       }
     };
@@ -42,7 +119,7 @@ export default function InventoryGroupCard({
       document.removeEventListener("keydown", handleEscape);
       document.body.style.overflow = "unset";
     };
-  }, [selectedItem]);
+  }, [selectedItem, editingField]);
 
   return (
     <div className="mb-10 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -143,12 +220,16 @@ export default function InventoryGroupCard({
       </div>
 
       {/* Drawer */}
-      {selectedItem && (
+      {selectedItem && localItem && (
         <>
           {/* Backdrop */}
           <div
             className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity animate-fade-in"
-            onClick={() => setSelectedItem(null)}
+            onClick={() => {
+              if (!editingField) {
+                setSelectedItem(null);
+              }
+            }}
           />
 
           {/* Drawer Panel */}
@@ -160,12 +241,38 @@ export default function InventoryGroupCard({
             <div className="h-full flex flex-col">
               {/* Header */}
               <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-900">
-                  {selectedItem.name}
-                </h3>
+                {editingField === "name" ? (
+                  <input
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onBlur={handleSave}
+                    autoFocus
+                    disabled={isSaving}
+                    className="flex-1 text-xl font-bold text-gray-900 bg-transparent border-b-2 border-blue-500 focus:outline-none"
+                  />
+                ) : (
+                  <h3
+                    onClick={() => handleStartEdit("name")}
+                    className="text-xl font-bold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
+                  >
+                    {localItem.name}
+                    {isSaving && (
+                      <span className="ml-2 text-sm text-gray-500">
+                        Saving...
+                      </span>
+                    )}
+                  </h3>
+                )}
                 <button
-                  onClick={() => setSelectedItem(null)}
+                  onClick={() => {
+                    if (!editingField) {
+                      setSelectedItem(null);
+                    }
+                  }}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
+                  disabled={editingField !== null}
                 >
                   <svg
                     className="w-6 h-6"
@@ -190,12 +297,12 @@ export default function InventoryGroupCard({
                   <div>
                     <span
                       className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                        selectedItem.is_serialized
+                        localItem.is_serialized
                           ? "bg-blue-100 text-blue-800"
                           : "bg-gray-100 text-gray-800"
                       }`}
                     >
-                      {selectedItem.is_serialized
+                      {localItem.is_serialized
                         ? "Serialized"
                         : "Non-Serialized"}
                     </span>
@@ -207,7 +314,7 @@ export default function InventoryGroupCard({
                       Availability
                     </h4>
                     <p className="text-lg font-mono text-gray-900">
-                      {selectedItem.available} / {selectedItem.total}
+                      {localItem.available} / {localItem.total}
                     </p>
                   </div>
 
@@ -216,7 +323,27 @@ export default function InventoryGroupCard({
                     <h4 className="text-sm font-semibold text-gray-700 mb-2">
                       Price
                     </h4>
-                    <p className="text-gray-600">Placeholder</p>
+                    {editingField === "price" ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onBlur={handleSave}
+                        autoFocus
+                        disabled={isSaving}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <p
+                        onClick={() => handleStartEdit("price")}
+                        className="text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
+                      >
+                        ${localItem.price.toFixed(2)}
+                      </p>
+                    )}
                   </div>
 
                   {/* Location */}
@@ -236,7 +363,7 @@ export default function InventoryGroupCard({
                   </div>
 
                   {/* Units (only if serialized) */}
-                  {selectedItem.is_serialized && (
+                  {localItem.is_serialized && (
                     <div>
                       <h4 className="text-sm font-semibold text-gray-700 mb-2">
                         Units
