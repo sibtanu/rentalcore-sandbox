@@ -177,6 +177,26 @@ async function updateStock(formData: FormData) {
 }
 
 /* =========================
+   ADD MAINTENANCE LOG
+========================= */
+async function addMaintenanceLog(formData: FormData) {
+  "use server";
+
+  const itemId = String(formData.get("item_id"));
+  const note = String(formData.get("note") || "").trim();
+
+  if (!note) return;
+
+  await supabase.from("inventory_maintenance_logs").insert({
+    item_id: itemId,
+    tenant_id: "11111111-1111-1111-1111-111111111111",
+    note,
+  });
+
+  revalidatePath("/");
+}
+
+/* =========================
    PAGE
 ========================= */
 export default async function Home() {
@@ -214,6 +234,7 @@ export default async function Home() {
             moveItem={moveItem}
             updateItem={updateItem}
             updateStock={updateStock}
+            addMaintenanceLog={addMaintenanceLog}
           />
         ))}
       </div>

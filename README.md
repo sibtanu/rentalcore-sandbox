@@ -98,3 +98,16 @@ constraint inventory_groups_pkey primary key (id),
 constraint inventory_groups_tenant_id_name_key unique (tenant_id, name),
 constraint inventory_groups_tenant_id_fkey foreign KEY (tenant_id) references tenants (id) on delete CASCADE
 ) TABLESPACE pg_default;
+
+create table public.inventory_maintenance_logs (
+id uuid not null default extensions.uuid_generate_v4 (),
+tenant_id uuid not null,
+item_id uuid not null,
+unit_id uuid null,
+note text not null,
+created_at timestamp with time zone not null default now(),
+constraint inventory_maintenance_logs_pkey primary key (id),
+constraint inventory_maintenance_logs_tenant_id_fkey foreign KEY (tenant_id) references tenants (id) on delete CASCADE,
+constraint inventory_maintenance_logs_item_id_fkey foreign KEY (item_id) references inventory_items (id) on delete CASCADE,
+constraint inventory_maintenance_logs_unit_id_fkey foreign KEY (unit_id) references inventory_units (id) on delete CASCADE
+) TABLESPACE pg_default;

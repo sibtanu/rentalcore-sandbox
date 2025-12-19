@@ -12,6 +12,12 @@ interface Unit {
   location_name: string;
 }
 
+interface MaintenanceLog {
+  id: string;
+  note: string;
+  created_at: string;
+}
+
 interface Stock {
   total_quantity: number;
   out_of_service_quantity: number;
@@ -23,6 +29,7 @@ interface InventoryGroupCardProps {
   moveItem: (formData: FormData) => Promise<void>;
   updateItem: (formData: FormData) => Promise<void>;
   updateStock: (formData: FormData) => Promise<void>;
+  addMaintenanceLog: (formData: FormData) => Promise<void>;
 }
 
 export default function InventoryGroupCard({
@@ -31,6 +38,7 @@ export default function InventoryGroupCard({
   moveItem,
   updateItem,
   updateStock,
+  addMaintenanceLog,
 }: InventoryGroupCardProps) {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [localItem, setLocalItem] = useState<InventoryItem | null>(null);
@@ -46,6 +54,10 @@ export default function InventoryGroupCard({
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [isSavingStock, setIsSavingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
+  const [maintenanceLogs, setMaintenanceLogs] = useState<MaintenanceLog[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [newLogNote, setNewLogNote] = useState<string>("");
+  const [isAddingLog, setIsAddingLog] = useState(false);
 
   useEffect(() => {
     if (selectedItem) {
@@ -61,6 +73,9 @@ export default function InventoryGroupCard({
         setUnits([]);
         fetchStock(selectedItem.id);
       }
+
+      // Always fetch maintenance logs
+      fetchMaintenanceLogs(selectedItem.id);
     } else {
       setIsDrawerOpen(false);
       setLocalItem(null);
@@ -68,6 +83,8 @@ export default function InventoryGroupCard({
       setUnits([]);
       setStock(null);
       setStockError(null);
+      setMaintenanceLogs([]);
+      setNewLogNote("");
     }
   }, [selectedItem]);
 
@@ -209,6 +226,64 @@ export default function InventoryGroupCard({
     } finally {
       setIsSavingStock(false);
     }
+  };
+
+  const fetchMaintenanceLogs = async (itemId: string) => {
+    setIsLoadingLogs(true);
+    try {
+      const { data: logsData, error } = await supabase
+        .from("inventory_maintenance_logs")
+        .select("id, note, created_at")
+        .eq("item_id", itemId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching maintenance logs:", error);
+        setMaintenanceLogs([]);
+        return;
+      }
+
+      setMaintenanceLogs(logsData || []);
+    } catch (error) {
+      console.error("Error fetching maintenance logs:", error);
+      setMaintenanceLogs([]);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  const handleAddMaintenanceLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLogNote.trim() || !localItem || isAddingLog) return;
+
+    setIsAddingLog(true);
+    const noteToAdd = newLogNote.trim();
+
+    const formData = new FormData();
+    formData.append("item_id", localItem.id);
+    formData.append("note", noteToAdd);
+
+    try {
+      await addMaintenanceLog(formData);
+      setNewLogNote("");
+      // Refresh logs
+      await fetchMaintenanceLogs(localItem.id);
+    } catch (error) {
+      console.error("Error adding maintenance log:", error);
+    } finally {
+      setIsAddingLog(false);
+    }
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   };
 
   const handleStartEdit = (field: "name" | "price") => {
@@ -612,12 +687,61 @@ export default function InventoryGroupCard({
                     <p className="text-gray-600">Placeholder</p>
                   </div>
 
-                  {/* Maintenance */}
+                  {/* Maintenance Log */}
                   <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                      Maintenance
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                      Maintenance Log
                     </h4>
-                    <p className="text-gray-600">Placeholder</p>
+                    {isLoadingLogs ? (
+                      <div className="text-sm text-gray-500 py-2">
+                        Loading logs...
+                      </div>
+                    ) : (
+                      <>
+                        {maintenanceLogs.length === 0 ? (
+                          <div className="text-sm text-gray-500 py-2 mb-3">
+                            No maintenance logs
+                          </div>
+                        ) : (
+                          <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md mb-3">
+                            <div className="divide-y divide-gray-200">
+                              {maintenanceLogs.map((log) => (
+                                <div
+                                  key={log.id}
+                                  className="px-3 py-2 hover:bg-gray-50"
+                                >
+                                  <div className="text-xs text-gray-500 mb-1">
+                                    {formatTimestamp(log.created_at)}
+                                  </div>
+                                  <div className="text-sm text-gray-900">
+                                    {log.note}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <form onSubmit={handleAddMaintenanceLog}>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newLogNote}
+                              onChange={(e) => setNewLogNote(e.target.value)}
+                              placeholder="Add maintenance note..."
+                              disabled={isAddingLog}
+                              className="flex-1 px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            />
+                            <button
+                              type="submit"
+                              disabled={!newLogNote.trim() || isAddingLog}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isAddingLog ? "Adding..." : "Add"}
+                            </button>
+                          </div>
+                        </form>
+                      </>
+                    )}
                   </div>
 
                   {/* Units (only if serialized) */}
