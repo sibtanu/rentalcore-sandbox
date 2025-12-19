@@ -1,4 +1,7 @@
-import type { InventoryGroup } from "@/lib/inventory";
+"use client";
+
+import { useState, useEffect } from "react";
+import type { InventoryGroup, InventoryItem } from "@/lib/inventory";
 
 interface InventoryGroupCardProps {
   group: InventoryGroup;
@@ -11,6 +14,36 @@ export default function InventoryGroupCard({
   createItem,
   moveItem,
 }: InventoryGroupCardProps) {
+  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    if (selectedItem) {
+      // Trigger animation after DOM update
+      setTimeout(() => setIsDrawerOpen(true), 10);
+    } else {
+      setIsDrawerOpen(false);
+    }
+  }, [selectedItem]);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedItem(null);
+      }
+    };
+
+    if (selectedItem) {
+      document.addEventListener("keydown", handleEscape);
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.body.style.overflow = "unset";
+    };
+  }, [selectedItem]);
+
   return (
     <div className="mb-10 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <h2 className="text-xl font-bold text-gray-900 mb-4">{group.name}</h2>
@@ -60,7 +93,8 @@ export default function InventoryGroupCard({
             {group.items.map((item) => (
               <tr
                 key={item.id}
-                className="border-b border-gray-200 hover:bg-gray-50 transition-colors"
+                onClick={() => setSelectedItem(item)}
+                className="border-b border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
               >
                 <td className="py-3 px-4 text-gray-900 font-medium flex items-center gap-2">
                   {item.name}
@@ -72,7 +106,10 @@ export default function InventoryGroupCard({
                 </td>
 
                 <td className="py-3 px-4 text-center">
-                  <div className="flex gap-1 justify-center">
+                  <div
+                    className="flex gap-1 justify-center"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <form action={moveItem} className="inline">
                       <input type="hidden" name="item_id" value={item.id} />
                       <input type="hidden" name="direction" value="up" />
@@ -104,6 +141,115 @@ export default function InventoryGroupCard({
           </tbody>
         </table>
       </div>
+
+      {/* Drawer */}
+      {selectedItem && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity animate-fade-in"
+            onClick={() => setSelectedItem(null)}
+          />
+
+          {/* Drawer Panel */}
+          <div
+            className={`fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out ${
+              isDrawerOpen ? "translate-x-0" : "translate-x-full"
+            }`}
+          >
+            <div className="h-full flex flex-col">
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-900">
+                  {selectedItem.name}
+                </h3>
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto px-6 py-4">
+                <div className="space-y-6">
+                  {/* Badge */}
+                  <div>
+                    <span
+                      className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                        selectedItem.is_serialized
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-gray-100 text-gray-800"
+                      }`}
+                    >
+                      {selectedItem.is_serialized
+                        ? "Serialized"
+                        : "Non-Serialized"}
+                    </span>
+                  </div>
+
+                  {/* Available / Total */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                      Availability
+                    </h4>
+                    <p className="text-lg font-mono text-gray-900">
+                      {selectedItem.available} / {selectedItem.total}
+                    </p>
+                  </div>
+
+                  {/* Price */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                      Price
+                    </h4>
+                    <p className="text-gray-600">Placeholder</p>
+                  </div>
+
+                  {/* Location */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                      Location
+                    </h4>
+                    <p className="text-gray-600">Placeholder</p>
+                  </div>
+
+                  {/* Maintenance */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                      Maintenance
+                    </h4>
+                    <p className="text-gray-600">Placeholder</p>
+                  </div>
+
+                  {/* Units (only if serialized) */}
+                  {selectedItem.is_serialized && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                        Units
+                      </h4>
+                      <p className="text-gray-600">Placeholder</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

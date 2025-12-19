@@ -6,6 +6,7 @@ export interface InventoryItem {
   available: number;
   total: number;
   group_id: string;
+  is_serialized: boolean;
 }
 
 export interface InventoryGroup {
@@ -133,6 +134,7 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
       available,
       total,
       group_id: item.group_id,
+      is_serialized: item.is_serialized,
     });
   });
 
@@ -148,6 +150,7 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
       available: item.available,
       total: item.total,
       group_id: item.group_id,
+      is_serialized: item.is_serialized,
     });
   });
 
