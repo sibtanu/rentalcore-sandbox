@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import type { InventoryGroup, InventoryItem } from "@/lib/inventory";
 import { supabase } from "@/lib/supabase";
 
@@ -30,6 +30,7 @@ interface InventoryGroupCardProps {
   updateItem: (formData: FormData) => Promise<void>;
   updateStock: (formData: FormData) => Promise<void>;
   addMaintenanceLog: (formData: FormData) => Promise<void>;
+  updateUnitStatus: (formData: FormData) => Promise<void>;
 }
 
 export default function InventoryGroupCard({
@@ -39,6 +40,7 @@ export default function InventoryGroupCard({
   updateItem,
   updateStock,
   addMaintenanceLog,
+  updateUnitStatus,
 }: InventoryGroupCardProps) {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [localItem, setLocalItem] = useState<InventoryItem | null>(null);
@@ -58,24 +60,40 @@ export default function InventoryGroupCard({
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [newLogNote, setNewLogNote] = useState<string>("");
   const [isAddingLog, setIsAddingLog] = useState(false);
+  const [updatingUnitId, setUpdatingUnitId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const [lastFetchedItemId, setLastFetchedItemId] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedItem) {
+      const itemId = selectedItem.id;
+      const wasOpen = isDrawerOpen;
+      
       setLocalItem(selectedItem);
-      // Trigger animation after DOM update
-      setTimeout(() => setIsDrawerOpen(true), 10);
-
-      // Fetch units if item is serialized
-      if (selectedItem.is_serialized) {
-        fetchUnits(selectedItem.id);
-        setStock(null);
-      } else {
-        setUnits([]);
-        fetchStock(selectedItem.id);
+      
+      // Only trigger animation if drawer wasn't already open
+      if (!wasOpen) {
+        setTimeout(() => setIsDrawerOpen(true), 10);
       }
 
-      // Always fetch maintenance logs
-      fetchMaintenanceLogs(selectedItem.id);
+      // Only fetch data if this is a new item (different ID)
+      // This prevents refetching when selectedItem is updated optimistically
+      if (itemId !== lastFetchedItemId) {
+        setLastFetchedItemId(itemId);
+        
+        // Fetch units if item is serialized
+        if (selectedItem.is_serialized) {
+          fetchUnits(selectedItem.id);
+          setStock(null);
+        } else {
+          setUnits([]);
+          fetchStock(selectedItem.id);
+        }
+
+        // Always fetch maintenance logs
+        fetchMaintenanceLogs(selectedItem.id);
+      }
     } else {
       setIsDrawerOpen(false);
       setLocalItem(null);
@@ -85,8 +103,9 @@ export default function InventoryGroupCard({
       setStockError(null);
       setMaintenanceLogs([]);
       setNewLogNote("");
+      setLastFetchedItemId(null);
     }
-  }, [selectedItem]);
+  }, [selectedItem?.id]); // Only depend on item ID, not the whole object
 
   const fetchUnits = async (itemId: string) => {
     setIsLoadingUnits(true);
@@ -123,6 +142,32 @@ export default function InventoryGroupCard({
         })) || [];
 
       setUnits(formattedUnits);
+
+      // Only update availability on initial load, not during updates
+      // This prevents glitches when revalidation happens
+      if (localItem && localItem.is_serialized && !updatingUnitId) {
+        const availableCount = formattedUnits.filter(
+          (u) => u.status === "available",
+        ).length;
+        const totalCount = formattedUnits.length;
+
+        // Only update if values actually changed to prevent unnecessary re-renders
+        if (
+          localItem.available !== availableCount ||
+          localItem.total !== totalCount
+        ) {
+          setLocalItem({
+            ...localItem,
+            available: availableCount,
+            total: totalCount,
+          });
+          setSelectedItem({
+            ...localItem,
+            available: availableCount,
+            total: totalCount,
+          });
+        }
+      }
     } catch (error) {
       console.error("Error fetching units:", error);
       setUnits([]);
@@ -283,6 +328,84 @@ export default function InventoryGroupCard({
       year: "numeric",
       hour: "numeric",
       minute: "2-digit",
+    });
+  };
+
+  const handleUnitStatusChange = async (
+    unitId: string,
+    currentStatus: string,
+  ) => {
+    if (updatingUnitId === unitId) return;
+
+    let newStatus: string;
+    if (currentStatus === "available") {
+      newStatus = "out";
+    } else if (currentStatus === "out") {
+      newStatus = "available";
+    } else {
+      return; // maintenance status - no action
+    }
+
+    setUpdatingUnitId(unitId);
+
+    // Optimistic update
+    const updatedUnits = units.map((unit) =>
+      unit.id === unitId ? { ...unit, status: newStatus as Unit["status"] } : unit,
+    );
+    setUnits(updatedUnits);
+
+    // Update local item availability based on updated units
+    if (localItem) {
+      const availableCount = updatedUnits.filter(
+        (u) => u.status === "available",
+      ).length;
+      const totalCount = updatedUnits.length;
+
+      setLocalItem({
+        ...localItem,
+        available: availableCount,
+        total: totalCount,
+      });
+      setSelectedItem({
+        ...localItem,
+        available: availableCount,
+        total: totalCount,
+      });
+    }
+
+    const formData = new FormData();
+    formData.append("unit_id", unitId);
+    formData.append("status", newStatus);
+
+    // Use startTransition to make the update non-blocking and prevent UI glitches
+    startTransition(async () => {
+      try {
+        await updateUnitStatus(formData);
+        // Optimistic update is sufficient - revalidation will sync data in background
+        // Don't refresh units here to prevent glitch
+      } catch (error) {
+        console.error("Error updating unit status:", error);
+        // Revert optimistic update on error
+        setUnits(units);
+        if (localItem) {
+          const availableCount = units.filter(
+            (u) => u.status === "available",
+          ).length;
+          const totalCount = units.length;
+          setLocalItem({
+            ...localItem,
+            available: availableCount,
+            total: totalCount,
+          });
+          setSelectedItem({
+            ...localItem,
+            available: availableCount,
+            total: totalCount,
+          });
+        }
+      } finally {
+        setUpdatingUnitId(null);
+      }
     });
   };
 
@@ -483,7 +606,7 @@ export default function InventoryGroupCard({
 
           {/* Drawer Panel */}
           <div
-            className={`fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out ${
+            className={`fixed inset-y-0 right-0 w-full max-w-lg bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out ${
               isDrawerOpen ? "translate-x-0" : "translate-x-full"
             }`}
           >
@@ -775,6 +898,9 @@ export default function InventoryGroupCard({
                                 <th className="text-left py-2 px-3 font-semibold text-gray-700">
                                   Location
                                 </th>
+                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
+                                  Action
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
@@ -813,6 +939,39 @@ export default function InventoryGroupCard({
                                     title={unit.location_name}
                                   >
                                     {unit.location_name}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    {unit.status === "available" && (
+                                      <button
+                                        onClick={() =>
+                                          handleUnitStatusChange(unit.id, unit.status)
+                                        }
+                                        disabled={updatingUnitId === unit.id}
+                                        className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        {updatingUnitId === unit.id
+                                          ? "Updating..."
+                                          : "Check Out"}
+                                      </button>
+                                    )}
+                                    {unit.status === "out" && (
+                                      <button
+                                        onClick={() =>
+                                          handleUnitStatusChange(unit.id, unit.status)
+                                        }
+                                        disabled={updatingUnitId === unit.id}
+                                        className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        {updatingUnitId === unit.id
+                                          ? "Updating..."
+                                          : "Check In"}
+                                      </button>
+                                    )}
+                                    {unit.status === "maintenance" && (
+                                      <span className="text-xs text-gray-400">
+                                        —
+                                      </span>
+                                    )}
                                   </td>
                                 </tr>
                               ))}

@@ -197,6 +197,28 @@ async function addMaintenanceLog(formData: FormData) {
 }
 
 /* =========================
+   UPDATE UNIT STATUS
+========================= */
+async function updateUnitStatus(formData: FormData) {
+  "use server";
+
+  const unitId = String(formData.get("unit_id"));
+  const newStatus = String(formData.get("status"));
+
+  if (!unitId || !newStatus) return;
+
+  // Validate status
+  if (!["available", "out", "maintenance"].includes(newStatus)) return;
+
+  await supabase
+    .from("inventory_units")
+    .update({ status: newStatus })
+    .eq("id", unitId);
+
+  revalidatePath("/");
+}
+
+/* =========================
    PAGE
 ========================= */
 export default async function Home() {
@@ -235,6 +257,7 @@ export default async function Home() {
             updateItem={updateItem}
             updateStock={updateStock}
             addMaintenanceLog={addMaintenanceLog}
+            updateUnitStatus={updateUnitStatus}
           />
         ))}
       </div>
