@@ -126,6 +126,57 @@ async function updateItem(formData: FormData) {
 }
 
 /* =========================
+   UPDATE STOCK
+========================= */
+async function updateStock(formData: FormData) {
+  "use server";
+
+  const itemId = String(formData.get("item_id"));
+  const totalQuantity = Number(formData.get("total_quantity"));
+  const outOfServiceQuantity = Number(formData.get("out_of_service_quantity"));
+
+  if (
+    Number.isNaN(totalQuantity) ||
+    Number.isNaN(outOfServiceQuantity) ||
+    totalQuantity < 0 ||
+    outOfServiceQuantity < 0 ||
+    outOfServiceQuantity > totalQuantity
+  ) {
+    return;
+  }
+
+  // Check if stock record exists
+  const { data: existingStock } = await supabase
+    .from("inventory_stock")
+    .select("id")
+    .eq("item_id", itemId)
+    .limit(1)
+    .single();
+
+  if (existingStock) {
+    // Update existing stock
+    await supabase
+      .from("inventory_stock")
+      .update({
+        total_quantity: totalQuantity,
+        out_of_service_quantity: outOfServiceQuantity,
+      })
+      .eq("item_id", itemId);
+  } else {
+    // Create new stock record
+    await supabase.from("inventory_stock").insert({
+      item_id: itemId,
+      location_id: "22222222-2222-2222-2222-222222222222", // Main Warehouse
+      total_quantity: totalQuantity,
+      out_of_service_quantity: outOfServiceQuantity,
+      tenant_id: "11111111-1111-1111-1111-111111111111",
+    });
+  }
+
+  revalidatePath("/");
+}
+
+/* =========================
    PAGE
 ========================= */
 export default async function Home() {
@@ -162,6 +213,7 @@ export default async function Home() {
             createItem={createItem}
             moveItem={moveItem}
             updateItem={updateItem}
+            updateStock={updateStock}
           />
         ))}
       </div>

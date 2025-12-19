@@ -12,11 +12,17 @@ interface Unit {
   location_name: string;
 }
 
+interface Stock {
+  total_quantity: number;
+  out_of_service_quantity: number;
+}
+
 interface InventoryGroupCardProps {
   group: InventoryGroup;
   createItem: (formData: FormData) => Promise<void>;
   moveItem: (formData: FormData) => Promise<void>;
   updateItem: (formData: FormData) => Promise<void>;
+  updateStock: (formData: FormData) => Promise<void>;
 }
 
 export default function InventoryGroupCard({
@@ -24,6 +30,7 @@ export default function InventoryGroupCard({
   createItem,
   moveItem,
   updateItem,
+  updateStock,
 }: InventoryGroupCardProps) {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [localItem, setLocalItem] = useState<InventoryItem | null>(null);
@@ -35,6 +42,10 @@ export default function InventoryGroupCard({
   const [editValue, setEditValue] = useState<string>("");
   const [units, setUnits] = useState<Unit[]>([]);
   const [isLoadingUnits, setIsLoadingUnits] = useState(false);
+  const [stock, setStock] = useState<Stock | null>(null);
+  const [isLoadingStock, setIsLoadingStock] = useState(false);
+  const [isSavingStock, setIsSavingStock] = useState(false);
+  const [stockError, setStockError] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedItem) {
@@ -45,14 +56,18 @@ export default function InventoryGroupCard({
       // Fetch units if item is serialized
       if (selectedItem.is_serialized) {
         fetchUnits(selectedItem.id);
+        setStock(null);
       } else {
         setUnits([]);
+        fetchStock(selectedItem.id);
       }
     } else {
       setIsDrawerOpen(false);
       setLocalItem(null);
       setEditingField(null);
       setUnits([]);
+      setStock(null);
+      setStockError(null);
     }
   }, [selectedItem]);
 
@@ -96,6 +111,103 @@ export default function InventoryGroupCard({
       setUnits([]);
     } finally {
       setIsLoadingUnits(false);
+    }
+  };
+
+  const fetchStock = async (itemId: string) => {
+    setIsLoadingStock(true);
+    setStockError(null);
+    try {
+      const { data: stockData, error } = await supabase
+        .from("inventory_stock")
+        .select("total_quantity, out_of_service_quantity")
+        .eq("item_id", itemId)
+        .limit(1)
+        .single();
+
+      if (error && error.code !== "PGRST116") {
+        // PGRST116 is "not found" error, which is OK
+        console.error("Error fetching stock:", error);
+        setStockError("Failed to load stock data");
+        setStock(null);
+        return;
+      }
+
+      setStock(
+        stockData
+          ? {
+              total_quantity: stockData.total_quantity,
+              out_of_service_quantity: stockData.out_of_service_quantity || 0,
+            }
+          : { total_quantity: 0, out_of_service_quantity: 0 },
+      );
+    } catch (error) {
+      console.error("Error fetching stock:", error);
+      setStockError("Failed to load stock data");
+      setStock(null);
+    } finally {
+      setIsLoadingStock(false);
+    }
+  };
+
+  const handleStockChange = (
+    field: "total_quantity" | "out_of_service_quantity",
+    value: string,
+  ) => {
+    if (!stock) return;
+
+    const numValue = value === "" ? 0 : Number(value);
+    if (Number.isNaN(numValue) || numValue < 0) return;
+
+    setStock({
+      ...stock,
+      [field]: numValue,
+    });
+    setStockError(null);
+  };
+
+  const handleStockSave = async () => {
+    if (!stock || !localItem) return;
+
+    // Validation
+    if (
+      stock.total_quantity < 0 ||
+      stock.out_of_service_quantity < 0 ||
+      stock.out_of_service_quantity > stock.total_quantity
+    ) {
+      setStockError("Invalid values");
+      return;
+    }
+
+    setIsSavingStock(true);
+    setStockError(null);
+
+    const formData = new FormData();
+    formData.append("item_id", localItem.id);
+    formData.append("total_quantity", stock.total_quantity.toString());
+    formData.append(
+      "out_of_service_quantity",
+      stock.out_of_service_quantity.toString(),
+    );
+
+    try {
+      await updateStock(formData);
+      // Update local item availability
+      const available = stock.total_quantity - stock.out_of_service_quantity;
+      setLocalItem({
+        ...localItem,
+        total: stock.total_quantity,
+        available,
+      });
+      setSelectedItem({
+        ...localItem,
+        total: stock.total_quantity,
+        available,
+      });
+    } catch (error) {
+      setStockError("Failed to save stock");
+    } finally {
+      setIsSavingStock(false);
     }
   };
 
@@ -313,7 +425,7 @@ export default function InventoryGroupCard({
                       onBlur={handleSave}
                       autoFocus
                       disabled={isSaving}
-                      className="w-full text-xl font-bold text-gray-900 bg-transparent border-b-2 border-blue-500 focus:outline-none"
+                      className="w-full text-xl font-bold text-gray-900 bg-white border-b-2 border-blue-500 focus:outline-none"
                     />
                   ) : (
                     <h3
@@ -383,6 +495,87 @@ export default function InventoryGroupCard({
                     </p>
                   </div>
 
+                  {/* Stock Editor (only if non-serialized) */}
+                  {!localItem.is_serialized && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                        Stock
+                      </h4>
+                      {isLoadingStock ? (
+                        <div className="text-sm text-gray-500 py-2">
+                          Loading stock...
+                        </div>
+                      ) : stock ? (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-xs text-gray-600 mb-1">
+                              Total Quantity
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={stock.total_quantity}
+                              onChange={(e) =>
+                                handleStockChange(
+                                  "total_quantity",
+                                  e.target.value,
+                                )
+                              }
+                              onBlur={handleStockSave}
+                              disabled={isSavingStock}
+                              className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-600 mb-1">
+                              Out of Service
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max={stock.total_quantity}
+                              value={stock.out_of_service_quantity}
+                              onChange={(e) =>
+                                handleStockChange(
+                                  "out_of_service_quantity",
+                                  e.target.value,
+                                )
+                              }
+                              onBlur={handleStockSave}
+                              disabled={isSavingStock}
+                              className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            />
+                          </div>
+                          <div className="pt-2 border-t border-gray-200">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-gray-600">
+                                Available
+                              </span>
+                              <span className="text-sm font-semibold text-gray-900">
+                                {stock.total_quantity -
+                                  stock.out_of_service_quantity}
+                              </span>
+                            </div>
+                          </div>
+                          {isSavingStock && (
+                            <div className="text-xs text-gray-500">
+                              Saving...
+                            </div>
+                          )}
+                          {stockError && (
+                            <div className="text-xs text-red-600">
+                              {stockError}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-500 py-2">
+                          {stockError || "No stock data"}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Price */}
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-2">
@@ -399,7 +592,7 @@ export default function InventoryGroupCard({
                         onBlur={handleSave}
                         autoFocus
                         disabled={isSaving}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     ) : (
                       <p
