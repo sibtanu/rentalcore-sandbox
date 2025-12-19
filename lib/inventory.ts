@@ -15,22 +15,25 @@ export interface InventoryGroup {
 }
 
 export async function getInventoryData(): Promise<InventoryGroup[]> {
-  // Fetch all active inventory items with their group information
+  // Fetch all inventory groups first, ordered by display_order
+  const { data: groups, error: groupsError } = await supabase
+    .from("inventory_groups")
+    .select("id, name")
+    .order("display_order");
+
+  if (groupsError) {
+    console.error("Error fetching inventory groups:", groupsError);
+    return [];
+  }
+
+  if (!groups || groups.length === 0) {
+    return [];
+  }
+
+  // Fetch all active inventory items separately, ordered by display_order
   const { data: items, error: itemsError } = await supabase
     .from("inventory_items")
-    .select(
-      `
-      id,
-      name,
-      group_id,
-      is_serialized,
-      active,
-      inventory_groups:group_id (
-        id,
-        name
-      )
-    `,
-    )
+    .select("id, name, group_id, is_serialized, active")
     .eq("active", true)
     .order("display_order");
 
@@ -39,15 +42,11 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
     return [];
   }
 
-  if (!items || items.length === 0) {
-    return [];
-  }
-
   // Separate serialized and non-serialized items
   const serializedItemIds: string[] = [];
   const nonSerializedItemIds: string[] = [];
 
-  items.forEach((item: any) => {
+  items?.forEach((item: any) => {
     if (item.is_serialized) {
       serializedItemIds.push(item.id);
     } else {
@@ -108,10 +107,9 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
   // Build inventory items with availability
   const itemsWithAvailability: (InventoryItem & {
     group_id: string;
-    group_name: string;
   })[] = [];
 
-  items.forEach((item: any) => {
+  items?.forEach((item: any) => {
     let available = 0;
     let total = 0;
 
@@ -135,25 +133,16 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
       available,
       total,
       group_id: item.group_id,
-      group_name: item.inventory_groups?.name || "Ungrouped",
     });
   });
 
-  // Group items by inventory group
-  const groupsMap = new Map<string, InventoryGroup>();
-
+  // Create a map of items by group_id
+  const itemsByGroupId = new Map<string, InventoryItem[]>();
   itemsWithAvailability.forEach((item) => {
-    const groupId = item.group_id;
-
-    if (!groupsMap.has(groupId)) {
-      groupsMap.set(groupId, {
-        id: groupId,
-        name: item.group_name,
-        items: [],
-      });
+    if (!itemsByGroupId.has(item.group_id)) {
+      itemsByGroupId.set(item.group_id, []);
     }
-
-    groupsMap.get(groupId)!.items.push({
+    itemsByGroupId.get(item.group_id)!.push({
       id: item.id,
       name: item.name,
       available: item.available,
@@ -162,5 +151,10 @@ export async function getInventoryData(): Promise<InventoryGroup[]> {
     });
   });
 
-  return Array.from(groupsMap.values());
+  // Build result: all groups with their items (or empty array if no items)
+  return groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    items: itemsByGroupId.get(group.id) || [],
+  }));
 }
