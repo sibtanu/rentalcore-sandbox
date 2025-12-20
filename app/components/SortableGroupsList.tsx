@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   closestCenter,
@@ -21,9 +22,7 @@ import SortableGroup from "./SortableGroup";
 
 interface SortableGroupsListProps {
   groups: InventoryGroup[];
-  createItem: (
-    formData: FormData,
-  ) => Promise<
+  createItem: (formData: FormData) => Promise<
     | { ok: true }
     | {
         ok: false;
@@ -65,9 +64,20 @@ export default function SortableGroupsList({
   }, []);
 
   // Sync groups when initialGroups changes (e.g., after revalidation)
+  // Use a more comprehensive dependency that includes group IDs, item counts, and item IDs
+  // Also include group names to detect when groups are renamed
   useEffect(() => {
     setGroups(initialGroups);
-  }, [initialGroups.map((g) => g.id).join(",")]);
+  }, [
+    JSON.stringify(
+      initialGroups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        itemCount: g.items.length,
+        itemIds: g.items.map((i) => i.id).sort(),
+      })),
+    ),
+  ]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { flushSync } from "react-dom";
 import {
   DndContext,
@@ -22,6 +23,8 @@ import { CSS } from "@dnd-kit/utilities";
 import type { InventoryGroup, InventoryItem } from "@/lib/inventory";
 import { supabase } from "@/lib/supabase";
 import SortableItemRow from "./SortableItemRow";
+import ItemDetailDrawer from "./item-drawer/ItemDetailDrawer";
+import DeleteModals from "./item-drawer/DeleteModals";
 
 interface Unit {
   id: string;
@@ -44,9 +47,7 @@ interface Stock {
 
 interface InventoryGroupCardProps {
   group: InventoryGroup;
-  createItem: (
-    formData: FormData,
-  ) => Promise<
+  createItem: (formData: FormData) => Promise<
     | { ok: true }
     | {
         ok: false;
@@ -105,6 +106,7 @@ export default function InventoryGroupCard({
     null,
   );
   const [mounted, setMounted] = useState(false);
+  const router = useRouter();
   const [showDeleteItemModal, setShowDeleteItemModal] = useState(false);
   const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -132,6 +134,23 @@ export default function InventoryGroupCard({
       const initialItemIds = new Set(initialGroup.items.map((item) => item.id));
       const currentItemIds = new Set(group.items.map((item) => item.id));
 
+      // Match temp items to real items by name and replace them
+      const updatedItems = group.items.map((item) => {
+        if (item.id.startsWith("temp-")) {
+          // Find matching real item by name in initialGroup
+          const realItem = initialGroup.items.find(
+            (real) => real.name === item.name && !real.id.startsWith("temp-"),
+          );
+          return realItem || item;
+        }
+        return item;
+      });
+
+      // Check if any temp items were replaced
+      const hasReplacedTempItems = updatedItems.some(
+        (item, index) => item.id !== group.items[index].id,
+      );
+
       // If initialGroup has new items (not in current state), update
       const hasNewItems = initialGroup.items.some(
         (item) => !currentItemIds.has(item.id),
@@ -142,23 +161,29 @@ export default function InventoryGroupCard({
         initialGroup.items.length < group.items.length &&
         !group.items.some((item) => item.id.startsWith("temp-"));
 
-      // If current state has temp items that aren't in initialGroup, keep them temporarily
-      const hasTempItems = Array.from(currentItemIds).some(
-        (id) => id.startsWith("temp-") && !initialItemIds.has(id),
-      );
-
-      // Update if there are new real items, removed items, or if counts differ (and no temp items)
-      if (
-        hasNewItems ||
-        hasRemovedItems ||
-        (!hasTempItems && initialGroup.items.length !== group.items.length)
-      ) {
-        setGroup(initialGroup);
+      // Update if temp items were replaced, new items added, or removed items
+      if (hasReplacedTempItems || hasNewItems || hasRemovedItems) {
+        setGroup({ ...group, items: updatedItems });
       }
     } else {
       setGroup(initialGroup);
     }
   }, [initialGroup]);
+
+  // Update selectedItem when temp item in group.items is replaced with real item
+  useEffect(() => {
+    if (selectedItem && selectedItem.id.startsWith("temp-")) {
+      const realItem = group.items.find(
+        (item) =>
+          item.name === selectedItem.name && !item.id.startsWith("temp-"),
+      );
+      if (realItem) {
+        setSelectedItem(realItem);
+        setLocalItem(realItem);
+        setLastFetchedItemId(null); // Reset to trigger refetch
+      }
+    }
+  }, [group.items, selectedItem?.id]);
 
   const handleItemDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -195,6 +220,20 @@ export default function InventoryGroupCard({
 
   useEffect(() => {
     if (selectedItem) {
+      // If selectedItem has temp ID, check if it was replaced in group.items
+      if (selectedItem.id.startsWith("temp-")) {
+        const realItem = group.items.find(
+          (item) =>
+            item.name === selectedItem.name && !item.id.startsWith("temp-"),
+        );
+        if (realItem) {
+          setSelectedItem(realItem);
+          setLocalItem(realItem);
+          setLastFetchedItemId(null); // Reset to trigger refetch
+          return; // Exit early, will re-run with real item
+        }
+      }
+
       const itemId = selectedItem.id;
       const wasOpen = isDrawerOpen;
 
@@ -233,7 +272,7 @@ export default function InventoryGroupCard({
       setNewLogNote("");
       setLastFetchedItemId(null);
     }
-  }, [selectedItem?.id]); // Only depend on item ID, not the whole object
+  }, [selectedItem?.id, group.items]); // Also depend on group.items to detect when temp items are replaced
 
   const fetchUnits = async (itemId: string) => {
     setIsLoadingUnits(true);
@@ -410,6 +449,13 @@ export default function InventoryGroupCard({
   };
 
   const fetchMaintenanceLogs = async (itemId: string) => {
+    // Don't fetch if item is temp
+    if (itemId.startsWith("temp-")) {
+      setMaintenanceLogs([]);
+      setIsLoadingLogs(false);
+      return;
+    }
+
     setIsLoadingLogs(true);
     try {
       const { data: logsData, error } = await supabase
@@ -437,6 +483,11 @@ export default function InventoryGroupCard({
     e.preventDefault();
     if (!newLogNote.trim() || !localItem || isAddingLog) return;
 
+    // Prevent adding logs for temp items
+    if (localItem.id.startsWith("temp-")) {
+      return;
+    }
+
     setIsAddingLog(true);
     const noteToAdd = newLogNote.trim();
 
@@ -454,17 +505,6 @@ export default function InventoryGroupCard({
     } finally {
       setIsAddingLog(false);
     }
-  };
-
-  const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
   };
 
   const handleDeleteItem = async () => {
@@ -536,13 +576,18 @@ export default function InventoryGroupCard({
       const result = await deleteGroup(formData);
       if (result.error) {
         setDeleteError(result.error);
+        setIsDeleting(false);
       } else {
         setShowDeleteGroupModal(false);
-        // Revalidation will refresh the data
+        setIsDeleting(false);
+        // Force refresh to show items in Uncategorized after revalidation
+        // router.refresh() triggers a server component re-render with fresh data
+        startTransition(() => {
+          router.refresh();
+        });
       }
     } catch (error) {
       setDeleteError("Failed to delete group");
-    } finally {
       setIsDeleting(false);
     }
   };
@@ -919,500 +964,79 @@ export default function InventoryGroupCard({
 
       {/* Drawer */}
       {selectedItem && localItem && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity animate-fade-in"
-            onClick={() => {
-              if (!editingField) {
-                setSelectedItem(null);
-              }
-            }}
-          />
-
-          {/* Drawer Panel */}
-          <div
-            className={`fixed inset-y-0 right-0 w-full max-w-lg bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out ${
-              isDrawerOpen ? "translate-x-0" : "translate-x-full"
-            }`}
-          >
-            <div className="h-full flex flex-col">
-              {/* Header */}
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  {editingField === "name" ? (
-                    <input
-                      type="text"
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      onBlur={handleSave}
-                      autoFocus
-                      disabled={isSaving}
-                      className="w-full text-xl font-bold text-gray-900 bg-white border-b-2 border-blue-500 focus:outline-none"
-                    />
-                  ) : (
-                    <h3
-                      onClick={() => handleStartEdit("name")}
-                      className="text-xl font-bold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors line-clamp-2"
-                      title={localItem.name}
-                    >
-                      {localItem.name}
-                      {isSaving && (
-                        <span className="ml-2 text-sm text-gray-500">
-                          Saving...
-                        </span>
-                      )}
-                    </h3>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setDeleteError(null);
-                      setShowDeleteItemModal(true);
-                    }}
-                    disabled={editingField !== null}
-                    className="px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Delete
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!editingField) {
-                        setSelectedItem(null);
-                      }
-                    }}
-                    className="text-gray-400 hover:text-gray-600 transition-colors"
-                    disabled={editingField !== null}
-                  >
-                    <svg
-                      className="w-6 h-6"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto px-6 py-4">
-                <div className="space-y-6">
-                  {/* Badge */}
-                  <div>
-                    <span
-                      className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                        localItem.is_serialized
-                          ? "bg-blue-100 text-blue-800"
-                          : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {localItem.is_serialized
-                        ? "Serialized"
-                        : "Non-Serialized"}
-                    </span>
-                  </div>
-
-                  {/* Available / Total */}
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                      Availability
-                    </h4>
-                    <p className="text-lg font-mono text-gray-900">
-                      {localItem.available} / {localItem.total}
-                    </p>
-                  </div>
-
-                  {/* Stock Editor (only if non-serialized) */}
-                  {!localItem.is_serialized && (
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                        Stock
-                      </h4>
-                      {isLoadingStock ? (
-                        <div className="text-sm text-gray-500 py-2">
-                          Loading stock...
-                        </div>
-                      ) : stock ? (
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-xs text-gray-600 mb-1">
-                              Total Quantity
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={stock.total_quantity}
-                              onChange={(e) =>
-                                handleStockChange(
-                                  "total_quantity",
-                                  e.target.value,
-                                )
-                              }
-                              onBlur={handleStockSave}
-                              disabled={isSavingStock}
-                              className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-600 mb-1">
-                              Out of Service
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              max={stock.total_quantity}
-                              value={stock.out_of_service_quantity}
-                              onChange={(e) =>
-                                handleStockChange(
-                                  "out_of_service_quantity",
-                                  e.target.value,
-                                )
-                              }
-                              onBlur={handleStockSave}
-                              disabled={isSavingStock}
-                              className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                            />
-                          </div>
-                          <div className="pt-2 border-t border-gray-200">
-                            <div className="flex justify-between items-center">
-                              <span className="text-xs text-gray-600">
-                                Available
-                              </span>
-                              <span className="text-sm font-semibold text-gray-900">
-                                {stock.total_quantity -
-                                  stock.out_of_service_quantity}
-                              </span>
-                            </div>
-                          </div>
-                          {isSavingStock && (
-                            <div className="text-xs text-gray-500">
-                              Saving...
-                            </div>
-                          )}
-                          {stockError && (
-                            <div className="text-xs text-red-600">
-                              {stockError}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-sm text-gray-500 py-2">
-                          {stockError || "No stock data"}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Price */}
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                      Price
-                    </h4>
-                    {editingField === "price" ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        onBlur={handleSave}
-                        autoFocus
-                        disabled={isSaving}
-                        className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    ) : (
-                      <p
-                        onClick={() => handleStartEdit("price")}
-                        className="text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
-                      >
-                        ${localItem.price.toFixed(2)}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Location */}
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                      Location
-                    </h4>
-                    <p className="text-gray-600">Placeholder</p>
-                  </div>
-
-                  {/* Maintenance Log */}
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                      Maintenance Log
-                    </h4>
-                    {isLoadingLogs ? (
-                      <div className="text-sm text-gray-500 py-2">
-                        Loading logs...
-                      </div>
-                    ) : (
-                      <>
-                        {maintenanceLogs.length === 0 ? (
-                          <div className="text-sm text-gray-500 py-2 mb-3">
-                            No maintenance logs
-                          </div>
-                        ) : (
-                          <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md mb-3">
-                            <div className="divide-y divide-gray-200">
-                              {maintenanceLogs.map((log) => (
-                                <div
-                                  key={log.id}
-                                  className="px-3 py-2 hover:bg-gray-50"
-                                >
-                                  <div className="text-xs text-gray-500 mb-1">
-                                    {formatTimestamp(log.created_at)}
-                                  </div>
-                                  <div className="text-sm text-gray-900">
-                                    {log.note}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        <form onSubmit={handleAddMaintenanceLog}>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={newLogNote}
-                              onChange={(e) => setNewLogNote(e.target.value)}
-                              placeholder="Add maintenance note..."
-                              disabled={isAddingLog}
-                              className="flex-1 px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                            />
-                            <button
-                              type="submit"
-                              disabled={!newLogNote.trim() || isAddingLog}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {isAddingLog ? "Adding..." : "Add"}
-                            </button>
-                          </div>
-                        </form>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Units (only if serialized) */}
-                  {localItem.is_serialized && (
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                        Units
-                      </h4>
-                      {isLoadingUnits ? (
-                        <div className="text-sm text-gray-500 py-4">
-                          Loading units...
-                        </div>
-                      ) : units.length === 0 ? (
-                        <div className="text-sm text-gray-500 py-4">
-                          No units found
-                        </div>
-                      ) : (
-                        <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-md">
-                          <table className="w-full border-collapse text-sm">
-                            <thead className="sticky top-0 bg-white z-10">
-                              <tr className="border-b border-gray-300">
-                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
-                                  Serial Number
-                                </th>
-                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
-                                  Barcode
-                                </th>
-                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
-                                  Status
-                                </th>
-                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
-                                  Location
-                                </th>
-                                <th className="text-left py-2 px-3 font-semibold text-gray-700">
-                                  Action
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {units.map((unit) => (
-                                <tr
-                                  key={unit.id}
-                                  className="border-b border-gray-200 hover:bg-gray-50 transition-colors"
-                                >
-                                  <td
-                                    className="py-2 px-3 text-gray-900 truncate max-w-[120px]"
-                                    title={unit.serial_number}
-                                  >
-                                    {unit.serial_number}
-                                  </td>
-                                  <td
-                                    className="py-2 px-3 text-gray-900 font-mono truncate max-w-[120px]"
-                                    title={unit.barcode}
-                                  >
-                                    {unit.barcode}
-                                  </td>
-                                  <td className="py-2 px-3">
-                                    <span
-                                      className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                                        unit.status === "available"
-                                          ? "bg-green-100 text-green-800"
-                                          : unit.status === "out"
-                                            ? "bg-red-100 text-red-800"
-                                            : "bg-yellow-100 text-yellow-800"
-                                      }`}
-                                    >
-                                      {unit.status}
-                                    </span>
-                                  </td>
-                                  <td
-                                    className="py-2 px-3 text-gray-700 truncate max-w-[120px]"
-                                    title={unit.location_name}
-                                  >
-                                    {unit.location_name}
-                                  </td>
-                                  <td className="py-2 px-3">
-                                    {unit.status === "available" && (
-                                      <button
-                                        onClick={() =>
-                                          handleUnitStatusChange(
-                                            unit.id,
-                                            unit.status,
-                                          )
-                                        }
-                                        disabled={updatingUnitId === unit.id}
-                                        className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        {updatingUnitId === unit.id
-                                          ? "Updating..."
-                                          : "Check Out"}
-                                      </button>
-                                    )}
-                                    {unit.status === "out" && (
-                                      <button
-                                        onClick={() =>
-                                          handleUnitStatusChange(
-                                            unit.id,
-                                            unit.status,
-                                          )
-                                        }
-                                        disabled={updatingUnitId === unit.id}
-                                        className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        {updatingUnitId === unit.id
-                                          ? "Updating..."
-                                          : "Check In"}
-                                      </button>
-                                    )}
-                                    {unit.status === "maintenance" && (
-                                      <span className="text-xs text-gray-400">
-                                        —
-                                      </span>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
+        <ItemDetailDrawer
+          item={selectedItem}
+          localItem={localItem}
+          isDrawerOpen={isDrawerOpen}
+          editingField={editingField}
+          editValue={editValue}
+          isSaving={isSaving}
+          units={units}
+          isLoadingUnits={isLoadingUnits}
+          stock={stock}
+          isLoadingStock={isLoadingStock}
+          isSavingStock={isSavingStock}
+          stockError={stockError}
+          maintenanceLogs={maintenanceLogs}
+          isLoadingLogs={isLoadingLogs}
+          newLogNote={newLogNote}
+          isAddingLog={isAddingLog}
+          isItemTemp={(() => {
+            const realItem = group.items.find(
+              (item) =>
+                item.name === selectedItem.name && !item.id.startsWith("temp-"),
+            );
+            return realItem ? false : selectedItem.id.startsWith("temp-");
+          })()}
+          updatingUnitId={updatingUnitId}
+          showDeleteItemModal={showDeleteItemModal}
+          deleteError={deleteError}
+          isDeleting={isDeleting}
+          onStartEdit={handleStartEdit}
+          onCancelEdit={handleCancelEdit}
+          onSave={handleSave}
+          onKeyDown={handleKeyDown}
+          onEditValueChange={setEditValue}
+          onStockChange={handleStockChange}
+          onStockSave={handleStockSave}
+          onAddMaintenanceLog={handleAddMaintenanceLog}
+          onNewLogNoteChange={setNewLogNote}
+          onUnitStatusChange={handleUnitStatusChange}
+          onDeleteItemClick={() => {
+            setDeleteError(null);
+            setShowDeleteItemModal(true);
+          }}
+          onClose={() => {
+            if (!editingField) {
+              setSelectedItem(null);
+            }
+          }}
+          onCloseDeleteItemModal={() => {
+            setShowDeleteItemModal(false);
+            setDeleteError(null);
+          }}
+          onConfirmDeleteItem={handleDeleteItem}
+        />
       )}
 
-      {/* Delete Item Confirmation Modal */}
-      {showDeleteItemModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Remove Item
-            </h3>
-            <p className="text-gray-600 mb-4">
-              Are you sure you want to remove "{localItem?.name}" from
-              inventory?
-              <br />
-              <span className="text-sm text-gray-500">
-                This action cannot be undone.
-              </span>
-            </p>
-            {deleteError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-sm text-red-800">{deleteError}</p>
-              </div>
-            )}
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => {
-                  setShowDeleteItemModal(false);
-                  setDeleteError(null);
-                }}
-                disabled={isDeleting}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteItem}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-md transition-colors disabled:opacity-50"
-              >
-                {isDeleting ? "Removing..." : "Remove"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Group Confirmation Modal */}
-      {showDeleteGroupModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Delete Group
-            </h3>
-            <p className="text-gray-600 mb-4">
-              This will remove the group. All items will be moved to
-              'Uncategorized'.
-            </p>
-            {deleteError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-sm text-red-800">{deleteError}</p>
-              </div>
-            )}
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => {
-                  setShowDeleteGroupModal(false);
-                  setDeleteError(null);
-                }}
-                disabled={isDeleting}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteGroup}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-md transition-colors disabled:opacity-50"
-              >
-                {isDeleting ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Delete Modals */}
+      <DeleteModals
+        showDeleteItemModal={showDeleteItemModal}
+        showDeleteGroupModal={showDeleteGroupModal}
+        itemName={localItem?.name || null}
+        deleteError={deleteError}
+        isDeleting={isDeleting}
+        onCloseItemModal={() => {
+          setShowDeleteItemModal(false);
+          setDeleteError(null);
+        }}
+        onCloseGroupModal={() => {
+          setShowDeleteGroupModal(false);
+          setDeleteError(null);
+        }}
+        onConfirmDeleteItem={handleDeleteItem}
+        onConfirmDeleteGroup={handleDeleteGroup}
+      />
     </div>
   );
 }

@@ -8,9 +8,7 @@ import InventoryGroupCard from "./InventoryGroupCard";
 
 interface SortableGroupProps {
   group: InventoryGroup;
-  createItem: (
-    formData: FormData,
-  ) => Promise<
+  createItem: (formData: FormData) => Promise<
     | { ok: true }
     | {
         ok: false;
