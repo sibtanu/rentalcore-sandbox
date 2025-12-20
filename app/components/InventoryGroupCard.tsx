@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
+import { flushSync } from "react-dom";
 import {
   DndContext,
   closestCenter,
@@ -43,13 +44,27 @@ interface Stock {
 
 interface InventoryGroupCardProps {
   group: InventoryGroup;
-  createItem: (formData: FormData) => Promise<void>;
+  createItem: (
+    formData: FormData,
+  ) => Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        error: "DUPLICATE_NAME" | "VALIDATION_ERROR" | "SERVER_ERROR";
+      }
+  >;
   moveItem: (formData: FormData) => Promise<void>;
   updateItem: (formData: FormData) => Promise<void>;
   updateStock: (formData: FormData) => Promise<void>;
   addMaintenanceLog: (formData: FormData) => Promise<void>;
   updateUnitStatus: (formData: FormData) => Promise<void>;
   reorderItems: (formData: FormData) => Promise<void>;
+  deleteItem: (
+    formData: FormData,
+  ) => Promise<{ error?: string; success?: boolean }>;
+  deleteGroup: (
+    formData: FormData,
+  ) => Promise<{ error?: string; success?: boolean }>;
 }
 
 export default function InventoryGroupCard({
@@ -61,6 +76,8 @@ export default function InventoryGroupCard({
   addMaintenanceLog,
   updateUnitStatus,
   reorderItems,
+  deleteItem,
+  deleteGroup,
 }: InventoryGroupCardProps) {
   const [group, setGroup] = useState(initialGroup);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -88,6 +105,11 @@ export default function InventoryGroupCard({
     null,
   );
   const [mounted, setMounted] = useState(false);
+  const [showDeleteItemModal, setShowDeleteItemModal] = useState(false);
+  const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [createItemError, setCreateItemError] = useState<string | null>(null);
 
   // Only render DndContext on client to avoid hydration mismatch
   useEffect(() => {
@@ -104,14 +126,39 @@ export default function InventoryGroupCard({
 
   // Update group when prop changes (but preserve local state during drag)
   useEffect(() => {
-    // Only update if the group ID changed or items count changed significantly
-    if (
-      initialGroup.id !== group.id ||
-      Math.abs(initialGroup.items.length - group.items.length) > 0
-    ) {
+    // Always sync with initialGroup when it changes (e.g., after revalidation)
+    if (initialGroup.id === group.id) {
+      // Check if items have actually changed by comparing IDs
+      const initialItemIds = new Set(initialGroup.items.map((item) => item.id));
+      const currentItemIds = new Set(group.items.map((item) => item.id));
+
+      // If initialGroup has new items (not in current state), update
+      const hasNewItems = initialGroup.items.some(
+        (item) => !currentItemIds.has(item.id),
+      );
+
+      // If items were removed from server (deleted items), update
+      const hasRemovedItems =
+        initialGroup.items.length < group.items.length &&
+        !group.items.some((item) => item.id.startsWith("temp-"));
+
+      // If current state has temp items that aren't in initialGroup, keep them temporarily
+      const hasTempItems = Array.from(currentItemIds).some(
+        (id) => id.startsWith("temp-") && !initialItemIds.has(id),
+      );
+
+      // Update if there are new real items, removed items, or if counts differ (and no temp items)
+      if (
+        hasNewItems ||
+        hasRemovedItems ||
+        (!hasTempItems && initialGroup.items.length !== group.items.length)
+      ) {
+        setGroup(initialGroup);
+      }
+    } else {
       setGroup(initialGroup);
     }
-  }, [initialGroup.id, initialGroup.items.length]);
+  }, [initialGroup]);
 
   const handleItemDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -258,6 +305,14 @@ export default function InventoryGroupCard({
   };
 
   const fetchStock = async (itemId: string) => {
+    // Skip fetching if this is a temporary ID
+    if (itemId.startsWith("temp-")) {
+      setStock({ total_quantity: 0, out_of_service_quantity: 0 });
+      setIsLoadingStock(false);
+      setStockError(null);
+      return;
+    }
+
     setIsLoadingStock(true);
     setStockError(null);
     try {
@@ -410,6 +465,86 @@ export default function InventoryGroupCard({
       hour: "numeric",
       minute: "2-digit",
     });
+  };
+
+  const handleDeleteItem = async () => {
+    if (!localItem) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    const itemToDelete = localItem;
+
+    // If this is a temporary item (not yet saved to DB), just remove it locally
+    if (itemToDelete.id.startsWith("temp-")) {
+      setGroup({
+        ...group,
+        items: group.items.filter((item) => item.id !== itemToDelete.id),
+      });
+      setShowDeleteItemModal(false);
+      setSelectedItem(null);
+      setIsDeleting(false);
+      return;
+    }
+
+    // Optimistically remove item from list immediately
+    setGroup({
+      ...group,
+      items: group.items.filter((item) => item.id !== itemToDelete.id),
+    });
+
+    // Close drawer
+    setShowDeleteItemModal(false);
+    setSelectedItem(null);
+
+    const formData = new FormData();
+    formData.append("item_id", itemToDelete.id);
+
+    try {
+      const result = await deleteItem(formData);
+      if (result.error) {
+        setDeleteError(result.error);
+        // Revert optimistic update on error
+        setGroup({
+          ...group,
+          items: [...group.items, itemToDelete],
+        });
+        setShowDeleteItemModal(true);
+      }
+      // Revalidation will refresh the data and confirm the deletion
+    } catch (error) {
+      setDeleteError("Failed to delete item");
+      // Revert optimistic update on error
+      setGroup({
+        ...group,
+        items: [...group.items, itemToDelete],
+      });
+      setShowDeleteItemModal(true);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    const formData = new FormData();
+    formData.append("group_id", group.id);
+
+    try {
+      const result = await deleteGroup(formData);
+      if (result.error) {
+        setDeleteError(result.error);
+      } else {
+        setShowDeleteGroupModal(false);
+        // Revalidation will refresh the data
+      }
+    } catch (error) {
+      setDeleteError("Failed to delete group");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleUnitStatusChange = async (
@@ -576,11 +711,114 @@ export default function InventoryGroupCard({
     };
   }, [selectedItem, editingField]);
 
+  const isUncategorized = group.name === "Uncategorized";
+
   return (
     <div className="mb-10 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <h2 className="text-xl font-bold text-gray-900 mb-4">{group.name}</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-gray-900">{group.name}</h2>
+        {!isUncategorized && (
+          <button
+            onClick={() => {
+              setDeleteError(null);
+              setShowDeleteGroupModal(true);
+            }}
+            className="px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors"
+          >
+            Delete Group
+          </button>
+        )}
+      </div>
 
-      <form action={createItem} className="mb-4 p-3 bg-gray-50 rounded-md">
+      {/* Error message for item creation */}
+      {createItemError && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-red-800">{createItemError}</p>
+            <button
+              onClick={() => setCreateItemError(null)}
+              className="text-red-600 hover:text-red-800"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.currentTarget);
+          const name = String(formData.get("name") || "").trim();
+          const isSerialized = formData.get("is_serialized") === "on";
+
+          if (!name) return;
+
+          // Clear any previous error
+          setCreateItemError(null);
+
+          // Reset form
+          e.currentTarget.reset();
+
+          // Call server action FIRST - don't add optimistically
+          try {
+            const result = await createItem(formData);
+            if (!result.ok) {
+              // Show error immediately - no temp item to remove
+              if (result.error === "DUPLICATE_NAME") {
+                setCreateItemError(
+                  `An item with the name "${name}" already exists`,
+                );
+              } else if (result.error === "VALIDATION_ERROR") {
+                setCreateItemError("Name and Group ID are required");
+              } else {
+                setCreateItemError("Failed to create item. Please try again.");
+              }
+
+              // Auto-hide error after 5 seconds
+              setTimeout(() => {
+                setCreateItemError(null);
+              }, 5000);
+              return;
+            }
+            // Success - add optimistically AFTER server confirms
+            const tempId = `temp-${Date.now()}`;
+            const newItem: InventoryItem = {
+              id: tempId,
+              name,
+              group_id: group.id,
+              is_serialized: isSerialized,
+              price: 0,
+              available: 0,
+              total: 0,
+            };
+
+            setGroup({
+              ...group,
+              items: [...group.items, newItem],
+            });
+            // Revalidation will replace temp item with real one
+          } catch (error) {
+            setCreateItemError("Failed to create item. Please try again.");
+            setTimeout(() => {
+              setCreateItemError(null);
+            }, 5000);
+          }
+        }}
+        className="mb-4 p-3 bg-gray-50 rounded-md"
+      >
         <div className="flex gap-2 items-center flex-wrap">
           <input type="hidden" name="group_id" value={group.id} />
           <input
@@ -728,29 +966,41 @@ export default function InventoryGroupCard({
                     </h3>
                   )}
                 </div>
-                <button
-                  onClick={() => {
-                    if (!editingField) {
-                      setSelectedItem(null);
-                    }
-                  }}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                  disabled={editingField !== null}
-                >
-                  <svg
-                    className="w-6 h-6"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setDeleteError(null);
+                      setShowDeleteItemModal(true);
+                    }}
+                    disabled={editingField !== null}
+                    className="px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!editingField) {
+                        setSelectedItem(null);
+                      }
+                    }}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={editingField !== null}
+                  >
+                    <svg
+                      className="w-6 h-6"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {/* Content */}
@@ -1080,6 +1330,88 @@ export default function InventoryGroupCard({
             </div>
           </div>
         </>
+      )}
+
+      {/* Delete Item Confirmation Modal */}
+      {showDeleteItemModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Remove Item
+            </h3>
+            <p className="text-gray-600 mb-4">
+              Are you sure you want to remove "{localItem?.name}" from
+              inventory?
+              <br />
+              <span className="text-sm text-gray-500">
+                This action cannot be undone.
+              </span>
+            </p>
+            {deleteError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-800">{deleteError}</p>
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowDeleteItemModal(false);
+                  setDeleteError(null);
+                }}
+                disabled={isDeleting}
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteItem}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-md transition-colors disabled:opacity-50"
+              >
+                {isDeleting ? "Removing..." : "Remove"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Group Confirmation Modal */}
+      {showDeleteGroupModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Delete Group
+            </h3>
+            <p className="text-gray-600 mb-4">
+              This will remove the group. All items will be moved to
+              'Uncategorized'.
+            </p>
+            {deleteError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-800">{deleteError}</p>
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowDeleteGroupModal(false);
+                  setDeleteError(null);
+                }}
+                disabled={isDeleting}
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteGroup}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-md transition-colors disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

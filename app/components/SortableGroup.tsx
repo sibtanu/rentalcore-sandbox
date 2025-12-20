@@ -8,12 +8,26 @@ import InventoryGroupCard from "./InventoryGroupCard";
 
 interface SortableGroupProps {
   group: InventoryGroup;
-  createItem: (formData: FormData) => Promise<void>;
+  createItem: (
+    formData: FormData,
+  ) => Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        error: "DUPLICATE_NAME" | "VALIDATION_ERROR" | "SERVER_ERROR";
+      }
+  >;
   updateItem: (formData: FormData) => Promise<void>;
   updateStock: (formData: FormData) => Promise<void>;
   addMaintenanceLog: (formData: FormData) => Promise<void>;
   updateUnitStatus: (formData: FormData) => Promise<void>;
   reorderItems: (formData: FormData) => Promise<void>;
+  deleteItem: (
+    formData: FormData,
+  ) => Promise<{ error?: string; success?: boolean }>;
+  deleteGroup: (
+    formData: FormData,
+  ) => Promise<{ error?: string; success?: boolean }>;
 }
 
 export default function SortableGroup({
@@ -24,6 +38,8 @@ export default function SortableGroup({
   addMaintenanceLog,
   updateUnitStatus,
   reorderItems,
+  deleteItem,
+  deleteGroup,
 }: SortableGroupProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -80,6 +96,8 @@ export default function SortableGroup({
             addMaintenanceLog={addMaintenanceLog}
             updateUnitStatus={updateUnitStatus}
             reorderItems={reorderItems}
+            deleteItem={deleteItem}
+            deleteGroup={deleteGroup}
           />
         </div>
       </div>
