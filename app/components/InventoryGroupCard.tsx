@@ -80,7 +80,13 @@ export default function InventoryGroupCard({
   deleteItem,
   deleteGroup,
 }: InventoryGroupCardProps) {
-  const [group, setGroup] = useState(initialGroup);
+  // Use initialGroup directly as source of truth
+  const group = initialGroup;
+  // Temporary local state ONLY for items (optimistic updates)
+  const [localItems, setLocalItems] = useState<InventoryItem[] | null>(null);
+  // Items to render: use localItems if set (during optimistic updates), otherwise use server data
+  const items = localItems ?? group.items;
+
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [localItem, setLocalItem] = useState<InventoryItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -126,54 +132,15 @@ export default function InventoryGroupCard({
     }),
   );
 
-  // Update group when prop changes (but preserve local state during drag)
+  // Clear localItems when initialGroup.items changes (server revalidation wins)
   useEffect(() => {
-    // Always sync with initialGroup when it changes (e.g., after revalidation)
-    if (initialGroup.id === group.id) {
-      // Check if items have actually changed by comparing IDs
-      const initialItemIds = new Set(initialGroup.items.map((item) => item.id));
-      const currentItemIds = new Set(group.items.map((item) => item.id));
+    setLocalItems(null);
+  }, [initialGroup.items.map((i) => i.id).join(",")]);
 
-      // Match temp items to real items by name and replace them
-      const updatedItems = group.items.map((item) => {
-        if (item.id.startsWith("temp-")) {
-          // Find matching real item by name in initialGroup
-          const realItem = initialGroup.items.find(
-            (real) => real.name === item.name && !real.id.startsWith("temp-"),
-          );
-          return realItem || item;
-        }
-        return item;
-      });
-
-      // Check if any temp items were replaced
-      const hasReplacedTempItems = updatedItems.some(
-        (item, index) => item.id !== group.items[index].id,
-      );
-
-      // If initialGroup has new items (not in current state), update
-      const hasNewItems = initialGroup.items.some(
-        (item) => !currentItemIds.has(item.id),
-      );
-
-      // If items were removed from server (deleted items), update
-      const hasRemovedItems =
-        initialGroup.items.length < group.items.length &&
-        !group.items.some((item) => item.id.startsWith("temp-"));
-
-      // Update if temp items were replaced, new items added, or removed items
-      if (hasReplacedTempItems || hasNewItems || hasRemovedItems) {
-        setGroup({ ...group, items: updatedItems });
-      }
-    } else {
-      setGroup(initialGroup);
-    }
-  }, [initialGroup]);
-
-  // Update selectedItem when temp item in group.items is replaced with real item
+  // Update selectedItem when temp item in items is replaced with real item
   useEffect(() => {
     if (selectedItem && selectedItem.id.startsWith("temp-")) {
-      const realItem = group.items.find(
+      const realItem = items.find(
         (item) =>
           item.name === selectedItem.name && !item.id.startsWith("temp-"),
       );
@@ -183,21 +150,21 @@ export default function InventoryGroupCard({
         setLastFetchedItemId(null); // Reset to trigger refetch
       }
     }
-  }, [group.items, selectedItem?.id]);
+  }, [items, selectedItem?.id]);
 
   const handleItemDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
     if (!over || active.id === over.id) return;
 
-    const oldIndex = group.items.findIndex((item) => item.id === active.id);
-    const newIndex = group.items.findIndex((item) => item.id === over.id);
+    const oldIndex = items.findIndex((item) => item.id === active.id);
+    const newIndex = items.findIndex((item) => item.id === over.id);
 
     if (oldIndex === -1 || newIndex === -1) return;
 
-    // Optimistic update
-    const newItems = arrayMove(group.items, oldIndex, newIndex);
-    setGroup({ ...group, items: newItems });
+    // Optimistic update - use localItems temporarily
+    const newItems = arrayMove(items, oldIndex, newIndex);
+    setLocalItems(newItems);
 
     // Update display_order values
     const itemOrders: Record<string, number> = {};
@@ -211,18 +178,20 @@ export default function InventoryGroupCard({
 
     try {
       await reorderItems(formData);
+      // Clear localItems after success - server revalidation will update initialGroup
+      setLocalItems(null);
     } catch (error) {
       console.error("Error reordering items:", error);
-      // Revert on error - restore from current group state before optimistic update
-      setGroup(initialGroup);
+      // Revert on error - clear localItems to use server data
+      setLocalItems(null);
     }
   };
 
   useEffect(() => {
     if (selectedItem) {
-      // If selectedItem has temp ID, check if it was replaced in group.items
+      // If selectedItem has temp ID, check if it was replaced in items
       if (selectedItem.id.startsWith("temp-")) {
-        const realItem = group.items.find(
+        const realItem = items.find(
           (item) =>
             item.name === selectedItem.name && !item.id.startsWith("temp-"),
         );
@@ -272,7 +241,7 @@ export default function InventoryGroupCard({
       setNewLogNote("");
       setLastFetchedItemId(null);
     }
-  }, [selectedItem?.id, group.items]); // Also depend on group.items to detect when temp items are replaced
+  }, [selectedItem?.id, items]); // Also depend on items to detect when temp items are replaced
 
   const fetchUnits = async (itemId: string) => {
     setIsLoadingUnits(true);
@@ -517,10 +486,7 @@ export default function InventoryGroupCard({
 
     // If this is a temporary item (not yet saved to DB), just remove it locally
     if (itemToDelete.id.startsWith("temp-")) {
-      setGroup({
-        ...group,
-        items: group.items.filter((item) => item.id !== itemToDelete.id),
-      });
+      setLocalItems(items.filter((item) => item.id !== itemToDelete.id));
       setShowDeleteItemModal(false);
       setSelectedItem(null);
       setIsDeleting(false);
@@ -528,10 +494,7 @@ export default function InventoryGroupCard({
     }
 
     // Optimistically remove item from list immediately
-    setGroup({
-      ...group,
-      items: group.items.filter((item) => item.id !== itemToDelete.id),
-    });
+    setLocalItems(items.filter((item) => item.id !== itemToDelete.id));
 
     // Close drawer
     setShowDeleteItemModal(false);
@@ -544,21 +507,18 @@ export default function InventoryGroupCard({
       const result = await deleteItem(formData);
       if (result.error) {
         setDeleteError(result.error);
-        // Revert optimistic update on error
-        setGroup({
-          ...group,
-          items: [...group.items, itemToDelete],
-        });
+        // Revert optimistic update on error - clear localItems to use server data
+        setLocalItems(null);
         setShowDeleteItemModal(true);
+      } else {
+        // Clear localItems after success - server revalidation will update initialGroup
+        setLocalItems(null);
       }
       // Revalidation will refresh the data and confirm the deletion
     } catch (error) {
       setDeleteError("Failed to delete item");
-      // Revert optimistic update on error
-      setGroup({
-        ...group,
-        items: [...group.items, itemToDelete],
-      });
+      // Revert optimistic update on error - clear localItems to use server data
+      setLocalItems(null);
       setShowDeleteItemModal(true);
     } finally {
       setIsDeleting(false);
@@ -582,9 +542,7 @@ export default function InventoryGroupCard({
         setIsDeleting(false);
         // Force refresh to show items in Uncategorized after revalidation
         // router.refresh() triggers a server component re-render with fresh data
-        startTransition(() => {
-          router.refresh();
-        });
+        router.refresh();
       }
     } catch (error) {
       setDeleteError("Failed to delete group");
@@ -850,10 +808,7 @@ export default function InventoryGroupCard({
               total: 0,
             };
 
-            setGroup({
-              ...group,
-              items: [...group.items, newItem],
-            });
+            setLocalItems([...items, newItem]);
             // Revalidation will replace temp item with real one
           } catch (error) {
             setCreateItemError("Failed to create item. Please try again.");
@@ -908,11 +863,11 @@ export default function InventoryGroupCard({
                 </tr>
               </thead>
               <SortableContext
-                items={group.items.map((item) => item.id)}
+                items={items.map((item) => item.id)}
                 strategy={verticalListSortingStrategy}
               >
                 <tbody>
-                  {group.items.map((item) => (
+                  {items.map((item) => (
                     <SortableItemRow
                       key={item.id}
                       item={item}
@@ -938,7 +893,7 @@ export default function InventoryGroupCard({
               </tr>
             </thead>
             <tbody>
-              {group.items.map((item) => (
+              {items.map((item) => (
                 <tr
                   key={item.id}
                   onClick={() => setSelectedItem(item)}
@@ -982,7 +937,7 @@ export default function InventoryGroupCard({
           newLogNote={newLogNote}
           isAddingLog={isAddingLog}
           isItemTemp={(() => {
-            const realItem = group.items.find(
+            const realItem = items.find(
               (item) =>
                 item.name === selectedItem.name && !item.id.startsWith("temp-"),
             );

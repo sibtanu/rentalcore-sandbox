@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import {
   DndContext,
   closestCenter,
@@ -55,29 +54,16 @@ export default function SortableGroupsList({
   deleteItem,
   deleteGroup,
 }: SortableGroupsListProps) {
-  const [groups, setGroups] = useState(initialGroups);
+  // Use initialGroups as source of truth, only override during drag
+  const [draggingGroups, setDraggingGroups] = useState<InventoryGroup[] | null>(
+    null,
+  );
   const [mounted, setMounted] = useState(false);
 
   // Only render DndContext on client to avoid hydration mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  // Sync groups when initialGroups changes (e.g., after revalidation)
-  // Use a more comprehensive dependency that includes group IDs, item counts, and item IDs
-  // Also include group names to detect when groups are renamed
-  useEffect(() => {
-    setGroups(initialGroups);
-  }, [
-    JSON.stringify(
-      initialGroups.map((g) => ({
-        id: g.id,
-        name: g.name,
-        itemCount: g.items.length,
-        itemIds: g.items.map((i) => i.id).sort(),
-      })),
-    ),
-  ]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -89,16 +75,24 @@ export default function SortableGroupsList({
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (!over || active.id === over.id) return;
+    if (!over || active.id === over.id) {
+      setDraggingGroups(null);
+      return;
+    }
 
-    const oldIndex = groups.findIndex((g) => g.id === active.id);
-    const newIndex = groups.findIndex((g) => g.id === over.id);
+    // Use current groups (either dragging state or initialGroups)
+    const currentGroups = draggingGroups || initialGroups;
+    const oldIndex = currentGroups.findIndex((g) => g.id === active.id);
+    const newIndex = currentGroups.findIndex((g) => g.id === over.id);
 
-    if (oldIndex === -1 || newIndex === -1) return;
+    if (oldIndex === -1 || newIndex === -1) {
+      setDraggingGroups(null);
+      return;
+    }
 
-    // Optimistic update
-    const newGroups = arrayMove(groups, oldIndex, newIndex);
-    setGroups(newGroups);
+    // Optimistic update during drag
+    const newGroups = arrayMove(currentGroups, oldIndex, newIndex);
+    setDraggingGroups(newGroups);
 
     // Update display_order values
     const groupOrders: Record<string, number> = {};
@@ -111,18 +105,23 @@ export default function SortableGroupsList({
 
     try {
       await reorderGroups(formData);
+      // Clear dragging state - server will revalidate and update initialGroups
+      setDraggingGroups(null);
     } catch (error) {
       console.error("Error reordering groups:", error);
       // Revert on error
-      setGroups(initialGroups);
+      setDraggingGroups(null);
     }
   };
+
+  // Use draggingGroups if set (during drag), otherwise use initialGroups (source of truth)
+  const groupsToRender = draggingGroups || initialGroups;
 
   // Render without DndContext during SSR to avoid hydration mismatch
   if (!mounted) {
     return (
       <>
-        {groups.map((group) => (
+        {groupsToRender.map((group) => (
           <SortableGroup
             key={group.id}
             group={group}
@@ -147,10 +146,10 @@ export default function SortableGroupsList({
       onDragEnd={handleDragEnd}
     >
       <SortableContext
-        items={groups.map((g) => g.id)}
+        items={groupsToRender.map((g) => g.id)}
         strategy={verticalListSortingStrategy}
       >
-        {groups.map((group) => (
+        {groupsToRender.map((group) => (
           <SortableGroup
             key={group.id}
             group={group}
