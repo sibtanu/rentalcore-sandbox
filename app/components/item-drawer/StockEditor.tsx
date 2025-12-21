@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
+
 interface Stock {
   total_quantity: number;
   out_of_service_quantity: number;
@@ -25,6 +27,101 @@ export default function StockEditor({
   onStockChange,
   onStockSave,
 }: StockEditorProps) {
+  // Draft string state for smooth typing
+  const [totalDraft, setTotalDraft] = useState("");
+  const [outDraft, setOutDraft] = useState("");
+
+  // Track which field is being edited to prevent syncing from overwriting user input
+  const editingFieldRef = useRef<"total" | "out" | null>(null);
+
+  // Sync draft state from numeric stock when stock changes, but not while editing
+  useEffect(() => {
+    if (!stock) {
+      setTotalDraft("");
+      setOutDraft("");
+      return;
+    }
+
+    // Don't sync if user is currently editing a field
+    if (editingFieldRef.current !== null) return;
+
+    setTotalDraft(stock.total_quantity.toString());
+    setOutDraft(stock.out_of_service_quantity.toString());
+  }, [stock?.total_quantity, stock?.out_of_service_quantity]);
+
+  const handleTotalChange = (value: string) => {
+    // Allow empty string and numeric input only
+    if (value === "" || /^\d+$/.test(value)) {
+      setTotalDraft(value);
+      // Only update numeric stock if draft parses to valid non-negative integer
+      if (value !== "") {
+        const numValue = parseInt(value, 10);
+        if (!Number.isNaN(numValue) && numValue >= 0) {
+          onStockChange("total_quantity", numValue.toString());
+        }
+      }
+    }
+  };
+
+  const handleOutChange = (value: string) => {
+    // Allow empty string and numeric input only
+    if (value === "" || /^\d+$/.test(value)) {
+      setOutDraft(value);
+      // Only update numeric stock if draft parses to valid non-negative integer and respects constraint
+      if (value !== "" && stock) {
+        const numValue = parseInt(value, 10);
+        if (!Number.isNaN(numValue) && numValue >= 0) {
+          const total = stock.total_quantity;
+          const clamped = Math.min(numValue, total);
+          onStockChange("out_of_service_quantity", clamped.toString());
+          // Update draft if clamped
+          if (clamped !== numValue) {
+            setOutDraft(clamped.toString());
+          }
+        }
+      }
+    }
+  };
+
+  const handleTotalFocus = () => {
+    editingFieldRef.current = "total";
+  };
+
+  const handleOutFocus = () => {
+    editingFieldRef.current = "out";
+  };
+
+  const handleTotalBlur = () => {
+    editingFieldRef.current = null;
+    if (!stock) return;
+
+    const numValue = totalDraft === "" ? 0 : parseInt(totalDraft, 10);
+    if (Number.isNaN(numValue) || numValue < 0) {
+      // Reset to current stock value on invalid input
+      setTotalDraft(stock.total_quantity.toString());
+      return;
+    }
+    // Ensure numeric stock is updated with final value
+    onStockChange("total_quantity", numValue.toString());
+    onStockSave();
+  };
+
+  const handleOutBlur = () => {
+    editingFieldRef.current = null;
+    if (!stock) return;
+
+    const numValue = outDraft === "" ? 0 : parseInt(outDraft, 10);
+    if (Number.isNaN(numValue) || numValue < 0) {
+      // Reset to current stock value on invalid input
+      setOutDraft(stock.out_of_service_quantity.toString());
+      return;
+    }
+    // Clamp to total and ensure numeric stock is updated
+    const clamped = Math.min(numValue, stock.total_quantity);
+    setOutDraft(clamped.toString());
+    onStockChange("out_of_service_quantity", clamped.toString());
+    onStockSave();
+  };
   if (isLoadingStock) {
     return (
       <div>
@@ -54,11 +151,12 @@ export default function StockEditor({
             Total Quantity
           </label>
           <input
-            type="number"
-            min="0"
-            value={stock.total_quantity}
-            onChange={(e) => onStockChange("total_quantity", e.target.value)}
-            onBlur={onStockSave}
+            type="text"
+            inputMode="numeric"
+            value={totalDraft}
+            onChange={(e) => handleTotalChange(e.target.value)}
+            onFocus={handleTotalFocus}
+            onBlur={handleTotalBlur}
             disabled={isSavingStock}
             className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
           />
@@ -68,14 +166,12 @@ export default function StockEditor({
             Out of Service
           </label>
           <input
-            type="number"
-            min="0"
-            max={stock.total_quantity}
-            value={stock.out_of_service_quantity}
-            onChange={(e) =>
-              onStockChange("out_of_service_quantity", e.target.value)
-            }
-            onBlur={onStockSave}
+            type="text"
+            inputMode="numeric"
+            value={outDraft}
+            onChange={(e) => handleOutChange(e.target.value)}
+            onFocus={handleOutFocus}
+            onBlur={handleOutBlur}
             disabled={isSavingStock}
             className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
           />
