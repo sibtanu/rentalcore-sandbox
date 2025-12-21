@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getInventoryData } from "@/lib/inventory";
-import SortableGroupsList from "./components/SortableGroupsList";
+import InventoryPageContent from "./components/InventoryPageContent";
 
 /* =========================
    CREATE GROUP
@@ -712,7 +712,7 @@ export default async function Home() {
           </div>
         </form>
 
-        <SortableGroupsList
+        <InventoryPageContent
           groups={inventoryGroups}
           createItem={createItem}
           updateItem={updateItem}

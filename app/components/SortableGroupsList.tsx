@@ -40,6 +40,8 @@ interface SortableGroupsListProps {
   deleteGroup: (
     formData: FormData,
   ) => Promise<{ error?: string; success?: boolean }>;
+  itemIdToOpen: string | null;
+  onItemOpened: () => void;
 }
 
 export default function SortableGroupsList({
@@ -53,6 +55,8 @@ export default function SortableGroupsList({
   reorderItems,
   deleteItem,
   deleteGroup,
+  itemIdToOpen,
+  onItemOpened,
 }: SortableGroupsListProps) {
   // Use initialGroups as source of truth, only override during drag
   const [draggingGroups, setDraggingGroups] = useState<InventoryGroup[] | null>(
@@ -133,6 +137,8 @@ export default function SortableGroupsList({
             reorderItems={reorderItems}
             deleteItem={deleteItem}
             deleteGroup={deleteGroup}
+            itemIdToOpen={itemIdToOpen}
+            onItemOpened={onItemOpened}
           />
         ))}
       </>
@@ -161,6 +167,8 @@ export default function SortableGroupsList({
             reorderItems={reorderItems}
             deleteItem={deleteItem}
             deleteGroup={deleteGroup}
+            itemIdToOpen={itemIdToOpen}
+            onItemOpened={onItemOpened}
           />
         ))}
       </SortableContext>

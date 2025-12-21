@@ -28,6 +28,7 @@ interface Stock {
 interface ItemDetailDrawerProps {
   item: InventoryItem;
   localItem: InventoryItem;
+  groupName: string;
   isDrawerOpen: boolean;
   editingField: "name" | "price" | null;
   editValue: string;
@@ -69,6 +70,7 @@ interface ItemDetailDrawerProps {
 export default function ItemDetailDrawer({
   item,
   localItem,
+  groupName,
   isDrawerOpen,
   editingField,
   editValue,
@@ -127,6 +129,7 @@ export default function ItemDetailDrawer({
           {/* Header */}
           <DrawerHeader
             item={localItem}
+            groupName={groupName}
             editingField={editingField}
             editValue={editValue}
             isSaving={isSaving}

@@ -66,6 +66,8 @@ interface InventoryGroupCardProps {
   deleteGroup: (
     formData: FormData,
   ) => Promise<{ error?: string; success?: boolean }>;
+  itemIdToOpen: string | null;
+  onItemOpened: () => void;
 }
 
 export default function InventoryGroupCard({
@@ -79,6 +81,8 @@ export default function InventoryGroupCard({
   reorderItems,
   deleteItem,
   deleteGroup,
+  itemIdToOpen,
+  onItemOpened,
 }: InventoryGroupCardProps) {
   // Use initialGroup directly as source of truth
   const group = initialGroup;
@@ -136,6 +140,18 @@ export default function InventoryGroupCard({
   useEffect(() => {
     setLocalItems(null);
   }, [initialGroup.items.map((i) => i.id).join(",")]);
+
+  // Open item drawer when itemIdToOpen matches an item in this group
+  useEffect(() => {
+    if (itemIdToOpen) {
+      const itemToOpen = items.find((item) => item.id === itemIdToOpen);
+      if (itemToOpen) {
+        setSelectedItem(itemToOpen);
+        onItemOpened(); // Clear the itemIdToOpen in parent
+        // The selectedItem effect will handle setting localItem, opening drawer, and fetching data
+      }
+    }
+  }, [itemIdToOpen, items, onItemOpened]);
 
   // Update selectedItem when temp item in items is replaced with real item
   useEffect(() => {
@@ -922,6 +938,7 @@ export default function InventoryGroupCard({
         <ItemDetailDrawer
           item={selectedItem}
           localItem={localItem}
+          groupName={group.name}
           isDrawerOpen={isDrawerOpen}
           editingField={editingField}
           editValue={editValue}

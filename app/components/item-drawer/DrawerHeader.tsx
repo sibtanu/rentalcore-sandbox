@@ -4,6 +4,7 @@ import type { InventoryItem } from "@/lib/inventory";
 
 interface DrawerHeaderProps {
   item: InventoryItem;
+  groupName: string;
   editingField: "name" | "price" | null;
   editValue: string;
   isSaving: boolean;
@@ -17,6 +18,7 @@ interface DrawerHeaderProps {
 
 export default function DrawerHeader({
   item,
+  groupName,
   editingField,
   editValue,
   isSaving,
@@ -30,6 +32,7 @@ export default function DrawerHeader({
   return (
     <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
       <div className="flex-1 min-w-0">
+        <div className="text-sm text-gray-500 mb-1">{groupName}</div>
         {editingField === "name" ? (
           <input
             type="text"
