@@ -88,8 +88,25 @@ export default function InventoryGroupCard({
   const group = initialGroup;
   // Temporary local state ONLY for items (optimistic updates)
   const [localItems, setLocalItems] = useState<InventoryItem[] | null>(null);
+  // Track items being deleted to prevent flicker during revalidation
+  const [deletingItemIds, setDeletingItemIds] = useState<Set<string>>(
+    new Set(),
+  );
   // Items to render: use localItems if set (during optimistic updates), otherwise use server data
-  const items = localItems ?? group.items;
+  // Filter out items that are being deleted to prevent flicker during revalidation
+  // Memoize to prevent infinite loops in useEffect dependencies
+  // Convert deletingItemIds Set to sorted array string for stable dependency
+  const deletingItemIdsKey = useMemo(
+    () => Array.from(deletingItemIds).sort().join(","),
+    [deletingItemIds],
+  );
+  const items = useMemo(
+    () =>
+      (localItems ?? group.items).filter(
+        (item) => !deletingItemIds.has(item.id),
+      ),
+    [localItems, group.items, deletingItemIdsKey],
+  );
 
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [localItem, setLocalItem] = useState<InventoryItem | null>(null);
@@ -139,6 +156,22 @@ export default function InventoryGroupCard({
   // Clear localItems when initialGroup.items changes (server revalidation wins)
   useEffect(() => {
     setLocalItems(null);
+  }, [initialGroup.items.map((i) => i.id).join(",")]);
+
+  // Clear deletingItemIds for items that are no longer in server data (deletion confirmed)
+  useEffect(() => {
+    const serverItemIds = new Set(initialGroup.items.map((i) => i.id));
+    setDeletingItemIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of prev) {
+        if (!serverItemIds.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
   }, [initialGroup.items.map((i) => i.id).join(",")]);
 
   // Open item drawer when itemIdToOpen matches an item in this group
@@ -203,6 +236,21 @@ export default function InventoryGroupCard({
     }
   };
 
+  // Create stable reference for item IDs to detect when temp items are replaced
+  // Use source items (before filtering) to avoid dependency on filtered items
+  const sourceItems = localItems ?? group.items;
+  const sourceItemIdsKey = useMemo(
+    () => {
+      const ids = sourceItems.map((item) => item.id).sort();
+      return ids.join(",");
+    },
+    // Depend on the actual item IDs, not the array reference
+    [
+      localItems?.map((i) => i.id).join(",") ??
+        group.items.map((i) => i.id).join(","),
+    ],
+  );
+
   useEffect(() => {
     if (selectedItem) {
       // If selectedItem has temp ID, check if it was replaced in items
@@ -257,7 +305,8 @@ export default function InventoryGroupCard({
       setNewLogNote("");
       setLastFetchedItemId(null);
     }
-  }, [selectedItem?.id, items]); // Also depend on items to detect when temp items are replaced
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedItem?.id, sourceItemIdsKey]); // Use stable sourceItemIdsKey instead of items array
 
   const fetchUnits = async (itemId: string) => {
     setIsLoadingUnits(true);
@@ -465,15 +514,21 @@ export default function InventoryGroupCard({
 
     // If this is a temporary item (not yet saved to DB), just remove it locally
     if (itemToDelete.id.startsWith("temp-")) {
-      setLocalItems(items.filter((item) => item.id !== itemToDelete.id));
+      const sourceItems = localItems ?? group.items;
+      setLocalItems(sourceItems.filter((item) => item.id !== itemToDelete.id));
       setShowDeleteItemModal(false);
       setSelectedItem(null);
       setIsDeleting(false);
       return;
     }
 
+    // Track this item as being deleted to prevent flicker during revalidation
+    setDeletingItemIds((prev) => new Set(prev).add(itemToDelete.id));
+
     // Optimistically remove item from list immediately
-    setLocalItems(items.filter((item) => item.id !== itemToDelete.id));
+    // Use unfiltered source to ensure we have the item to remove
+    const sourceItems = localItems ?? group.items;
+    setLocalItems(sourceItems.filter((item) => item.id !== itemToDelete.id));
 
     // Close drawer
     setShowDeleteItemModal(false);
@@ -486,17 +541,28 @@ export default function InventoryGroupCard({
       const result = await deleteItem(formData);
       if (result.error) {
         setDeleteError(result.error);
-        // Revert optimistic update on error - clear localItems to use server data
+        // Remove from deleting set and revert optimistic update on error
+        setDeletingItemIds((prev) => {
+          const next = new Set(prev);
+          next.delete(itemToDelete.id);
+          return next;
+        });
         setLocalItems(null);
         setShowDeleteItemModal(true);
       } else {
         // Clear localItems after success - server revalidation will update initialGroup
+        // Keep item in deleting set until revalidation confirms it's gone
         setLocalItems(null);
       }
       // Revalidation will refresh the data and confirm the deletion
     } catch (error) {
       setDeleteError("Failed to delete item");
-      // Revert optimistic update on error - clear localItems to use server data
+      // Remove from deleting set and revert optimistic update on error
+      setDeletingItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemToDelete.id);
+        return next;
+      });
       setLocalItems(null);
       setShowDeleteItemModal(true);
     } finally {
