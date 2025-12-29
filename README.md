@@ -111,3 +111,33 @@ constraint inventory_maintenance_logs_tenant_id_fkey foreign KEY (tenant_id) ref
 constraint inventory_maintenance_logs_item_id_fkey foreign KEY (item_id) references inventory_items (id) on delete CASCADE,
 constraint inventory_maintenance_logs_unit_id_fkey foreign KEY (unit_id) references inventory_units (id) on delete CASCADE
 ) TABLESPACE pg_default;
+
+create table public.quotes (
+id uuid not null default extensions.uuid_generate_v4 (),
+tenant_id uuid not null,
+name text not null,
+start_date date not null,
+end_date date not null,
+status text not null default 'draft',
+created_at timestamp with time zone not null default now(),
+constraint quotes_pkey primary key (id),
+constraint quotes_tenant_id_fkey foreign KEY (tenant_id) references tenants (id) on delete CASCADE,
+constraint quotes_status_check check (
+status = any (
+array['draft'::text, 'sent'::text, 'accepted'::text, 'rejected'::text]
+)
+)
+) TABLESPACE pg_default;
+
+create table public.quote_items (
+id uuid not null default extensions.uuid_generate_v4 (),
+quote_id uuid not null,
+item_id uuid not null,
+quantity integer not null,
+unit_price_snapshot numeric(10, 2) not null,
+created_at timestamp with time zone not null default now(),
+constraint quote_items_pkey primary key (id),
+constraint quote_items_quote_id_fkey foreign KEY (quote_id) references quotes (id) on delete CASCADE,
+constraint quote_items_item_id_fkey foreign KEY (item_id) references inventory_items (id) on delete CASCADE,
+constraint quote_items_quantity_check check ((quantity > 0))
+) TABLESPACE pg_default;
