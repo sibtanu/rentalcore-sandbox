@@ -48,6 +48,8 @@ interface ItemDetailDrawerProps {
   showDeleteItemModal: boolean;
   deleteError: string | null;
   isDeleting: boolean;
+  drawerAvailable: number;
+  drawerTotal: number;
   onStartEdit: (field: "name" | "price") => void;
   onCancelEdit: () => void;
   onSave: () => void;
@@ -90,6 +92,8 @@ export default function ItemDetailDrawer({
   showDeleteItemModal,
   deleteError,
   isDeleting,
+  drawerAvailable,
+  drawerTotal,
   onStartEdit,
   onCancelEdit,
   onSave,
@@ -163,7 +167,7 @@ export default function ItemDetailDrawer({
                   Availability
                 </h4>
                 <p className="text-lg font-mono text-gray-900">
-                  {localItem.available} / {localItem.total}
+                  {drawerAvailable} / {drawerTotal}
                 </p>
               </div>
 

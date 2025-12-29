@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { flushSync } from "react-dom";
 import {
@@ -294,32 +294,6 @@ export default function InventoryGroupCard({
         })) || [];
 
       setUnits(formattedUnits);
-
-      // Only update availability on initial load, not during updates
-      // This prevents glitches when revalidation happens
-      if (localItem && localItem.is_serialized && !updatingUnitId) {
-        const availableCount = formattedUnits.filter(
-          (u) => u.status === "available",
-        ).length;
-        const totalCount = formattedUnits.length;
-
-        // Only update if values actually changed to prevent unnecessary re-renders
-        if (
-          localItem.available !== availableCount ||
-          localItem.total !== totalCount
-        ) {
-          setLocalItem({
-            ...localItem,
-            available: availableCount,
-            total: totalCount,
-          });
-          setSelectedItem({
-            ...localItem,
-            available: availableCount,
-            total: totalCount,
-          });
-        }
-      }
     } catch (error) {
       console.error("Error fetching units:", error);
       setUnits([]);
@@ -414,18 +388,7 @@ export default function InventoryGroupCard({
 
     try {
       await updateStock(formData);
-      // Update local item availability
-      const available = stock.total_quantity - stock.out_of_service_quantity;
-      setLocalItem({
-        ...localItem,
-        total: stock.total_quantity,
-        available,
-      });
-      setSelectedItem({
-        ...localItem,
-        total: stock.total_quantity,
-        available,
-      });
+      // Server revalidation will update availability automatically
     } catch (error) {
       setStockError("Failed to save stock");
     } finally {
@@ -591,25 +554,6 @@ export default function InventoryGroupCard({
     );
     setUnits(updatedUnits);
 
-    // Update local item availability based on updated units
-    if (localItem) {
-      const availableCount = updatedUnits.filter(
-        (u) => u.status === "available",
-      ).length;
-      const totalCount = updatedUnits.length;
-
-      setLocalItem({
-        ...localItem,
-        available: availableCount,
-        total: totalCount,
-      });
-      setSelectedItem({
-        ...localItem,
-        available: availableCount,
-        total: totalCount,
-      });
-    }
-
     const formData = new FormData();
     formData.append("unit_id", unitId);
     formData.append("status", newStatus);
@@ -624,22 +568,7 @@ export default function InventoryGroupCard({
         console.error("Error updating unit status:", error);
         // Revert optimistic update on error
         setUnits(units);
-        if (localItem) {
-          const availableCount = units.filter(
-            (u) => u.status === "available",
-          ).length;
-          const totalCount = units.length;
-          setLocalItem({
-            ...localItem,
-            available: availableCount,
-            total: totalCount,
-          });
-          setSelectedItem({
-            ...localItem,
-            available: availableCount,
-            total: totalCount,
-          });
-        }
+        // Server revalidation will update availability automatically
       } finally {
         setUpdatingUnitId(null);
       }
@@ -731,6 +660,25 @@ export default function InventoryGroupCard({
   }, [selectedItem, editingField]);
 
   const isUncategorized = group.name === "Uncategorized";
+
+  // Derive availability for drawer from actual data sources
+  const drawerAvailability = useMemo(() => {
+    if (!localItem) return { available: 0, total: 0 };
+
+    if (localItem.is_serialized) {
+      // For serialized items: derive from units
+      const availableCount = units.filter(
+        (u) => u.status === "available",
+      ).length;
+      const totalCount = units.length;
+      return { available: availableCount, total: totalCount };
+    } else {
+      // For non-serialized items: derive from stock
+      if (!stock) return { available: 0, total: 0 };
+      const available = stock.total_quantity - stock.out_of_service_quantity;
+      return { available, total: stock.total_quantity };
+    }
+  }, [localItem, units, stock]);
 
   return (
     <div className="mb-10 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -964,6 +912,8 @@ export default function InventoryGroupCard({
           showDeleteItemModal={showDeleteItemModal}
           deleteError={deleteError}
           isDeleting={isDeleting}
+          drawerAvailable={drawerAvailability.available}
+          drawerTotal={drawerAvailability.total}
           onStartEdit={handleStartEdit}
           onCancelEdit={handleCancelEdit}
           onSave={handleSave}
