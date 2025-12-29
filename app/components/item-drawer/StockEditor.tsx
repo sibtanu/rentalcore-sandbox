@@ -53,8 +53,11 @@ export default function StockEditor({
     // Allow empty string and numeric input only
     if (value === "" || /^\d+$/.test(value)) {
       setTotalDraft(value);
-      // Only update numeric stock if draft parses to valid non-negative integer
-      if (value !== "") {
+      // Immediately commit "0" when input is cleared to ensure value is saved if drawer closes
+      if (value === "") {
+        onStockChange("total_quantity", "0");
+      } else {
+        // Only update numeric stock if draft parses to valid non-negative integer
         const numValue = parseInt(value, 10);
         if (!Number.isNaN(numValue) && numValue >= 0) {
           onStockChange("total_quantity", numValue.toString());
@@ -67,8 +70,11 @@ export default function StockEditor({
     // Allow empty string and numeric input only
     if (value === "" || /^\d+$/.test(value)) {
       setOutDraft(value);
-      // Only update numeric stock if draft parses to valid non-negative integer and respects constraint
-      if (value !== "" && stock) {
+      // Immediately commit "0" when input is cleared to ensure value is saved if drawer closes
+      if (value === "") {
+        onStockChange("out_of_service_quantity", "0");
+      } else if (stock) {
+        // Only update numeric stock if draft parses to valid non-negative integer and respects constraint
         const numValue = parseInt(value, 10);
         if (!Number.isNaN(numValue) && numValue >= 0) {
           const total = stock.total_quantity;
