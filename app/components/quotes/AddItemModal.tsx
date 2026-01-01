@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { searchInventoryItems } from "@/app/actions/quotes";
+import { calculateBufferQuantity } from "@/lib/quotes";
 
 interface InventoryItem {
   id: string;
   name: string;
   price: number;
+  is_serialized?: boolean;
   available?: number;
   total?: number;
 }
@@ -68,7 +70,25 @@ export default function AddItemModal({
     setShowQuantityPrompt(true);
     setSearchQuery(item.name);
     setSearchResults([]);
+    // Set initial quantity to 1
+    setQuantity("1");
   };
+
+  // Calculate buffer suggestions when item is selected and quantity changes
+  const bufferSuggestions = useMemo(() => {
+    if (!selectedItem || !selectedItem.total) return [];
+    const baseQty = parseInt(quantity, 10) || 1;
+    const isSerialized = selectedItem.is_serialized || false;
+    const buffer = calculateBufferQuantity(
+      isSerialized,
+      selectedItem.total,
+      baseQty,
+    );
+    if (buffer > 0) {
+      return [baseQty + buffer];
+    }
+    return [];
+  }, [selectedItem, quantity]);
 
   const handleConfirmAdd = () => {
     if (!selectedItem) return;
@@ -195,6 +215,27 @@ export default function AddItemModal({
                   className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
                 />
+                {/* Buffer suggestions */}
+                {bufferSuggestions.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-600 mb-1">
+                      Suggested with buffer:
+                    </p>
+                    <div className="flex gap-2">
+                      {bufferSuggestions.map((suggestedQty) => (
+                        <button
+                          key={suggestedQty}
+                          type="button"
+                          onClick={() => setQuantity(suggestedQty.toString())}
+                          className="px-3 py-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                        >
+                          {suggestedQty} (+
+                          {suggestedQty - (parseInt(quantity, 10) || 1)})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

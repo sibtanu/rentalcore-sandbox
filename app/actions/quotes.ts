@@ -356,6 +356,7 @@ export async function searchInventoryItems(query: string) {
         id: item.id,
         name: item.name,
         price: item.price,
+        is_serialized: item.is_serialized,
         available,
         total,
       };

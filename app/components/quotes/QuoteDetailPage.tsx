@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { QuoteWithItems } from "@/lib/quotes";
-import { getItemAvailability } from "@/lib/quotes";
+import {
+  getItemAvailabilityBreakdown,
+  calculateQuoteRisk,
+  type ItemAvailabilityBreakdown,
+  type RiskLevel,
+} from "@/lib/quotes";
 import AddItemModal from "./AddItemModal";
 
 interface QuoteDetailPageProps {
@@ -38,7 +43,7 @@ export default function QuoteDetailPage({
   const [quote, setQuote] = useState<QuoteWithItems>(initialQuote);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [itemAvailabilities, setItemAvailabilities] = useState<
-    Map<string, { available: number; total: number }>
+    Map<string, ItemAvailabilityBreakdown>
   >(new Map());
 
   // Sync quote when initialQuote changes (after router.refresh())
@@ -46,17 +51,17 @@ export default function QuoteDetailPage({
     setQuote(initialQuote);
   }, [initialQuote]);
 
-  // Fetch availabilities for all items
+  // Fetch availability breakdowns for all items
   useEffect(() => {
     const fetchAvailabilities = async () => {
-      const availMap = new Map<string, { available: number; total: number }>();
+      const availMap = new Map<string, ItemAvailabilityBreakdown>();
       for (const item of quote.items) {
         try {
-          const availability = await getItemAvailability(item.item_id);
-          availMap.set(item.item_id, availability);
+          const breakdown = await getItemAvailabilityBreakdown(item.item_id);
+          availMap.set(item.item_id, breakdown);
         } catch (error) {
           console.error(
-            `Error fetching availability for item ${item.item_id}:`,
+            `Error fetching availability breakdown for item ${item.item_id}:`,
             error,
           );
         }
@@ -70,6 +75,19 @@ export default function QuoteDetailPage({
       setItemAvailabilities(new Map());
     }
   }, [quote.items]);
+
+  // Calculate event-level risk indicator
+  const riskLevel = useMemo<RiskLevel>(() => {
+    if (quote.items.length === 0) return "green";
+    return calculateQuoteRisk(
+      quote.items.map((item) => ({
+        item_id: item.item_id,
+        quantity: item.quantity,
+        item_is_serialized: item.item_is_serialized,
+      })),
+      itemAvailabilities,
+    );
+  }, [quote.items, itemAvailabilities]);
 
   const handleAddItem = async (
     itemId: string,
@@ -137,7 +155,38 @@ export default function QuoteDetailPage({
           </Link>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">{quote.name}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-gray-900">
+                  {quote.name}
+                </h1>
+                {/* Event-level risk indicator */}
+                {quote.items.length > 0 && (
+                  <div
+                    className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 ${
+                      riskLevel === "green"
+                        ? "bg-green-100 text-green-800"
+                        : riskLevel === "yellow"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-red-100 text-red-800"
+                    }`}
+                  >
+                    <div
+                      className={`w-2 h-2 rounded-full ${
+                        riskLevel === "green"
+                          ? "bg-green-600"
+                          : riskLevel === "yellow"
+                            ? "bg-yellow-600"
+                            : "bg-red-600"
+                      }`}
+                    />
+                    {riskLevel === "green"
+                      ? "Sufficient inventory"
+                      : riskLevel === "yellow"
+                        ? "Tight availability"
+                        : "Insufficient inventory"}
+                  </div>
+                )}
+              </div>
               <p className="text-gray-600 mt-1">
                 {new Date(quote.start_date).toLocaleDateString()} -{" "}
                 {new Date(quote.end_date).toLocaleDateString()} ({numberOfDays}{" "}
@@ -179,13 +228,16 @@ export default function QuoteDetailPage({
           ) : (
             <div className="space-y-3">
               {quote.items.map((item) => {
-                const availability = itemAvailabilities.get(item.item_id) || {
+                const breakdown = itemAvailabilities.get(item.item_id) || {
                   available: 0,
+                  reserved: 0,
+                  inTransit: 0,
+                  outOfService: 0,
                   total: 0,
                 };
                 const lineTotal =
                   item.quantity * item.unit_price_snapshot * numberOfDays;
-                const isOverAvailable = item.quantity > availability.available;
+                const isOverAvailable = item.quantity > breakdown.available;
 
                 return (
                   <div
@@ -200,8 +252,7 @@ export default function QuoteDetailPage({
                           </h3>
                           {isOverAvailable && (
                             <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded">
-                              Over available ({availability.available}{" "}
-                              available)
+                              Over available ({breakdown.available} available)
                             </span>
                           )}
                         </div>
@@ -256,9 +307,46 @@ export default function QuoteDetailPage({
                           <span>
                             × {numberOfDays} day{numberOfDays !== 1 ? "s" : ""}
                           </span>
-                          <span className="text-xs text-gray-500">
-                            ({availability.available} / {availability.total}{" "}
-                            available)
+                        </div>
+                        {/* Availability breakdown */}
+                        <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
+                          <span>
+                            <span className="font-medium text-gray-700">
+                              Available:
+                            </span>{" "}
+                            {breakdown.available}
+                          </span>
+                          {breakdown.reserved > 0 && (
+                            <span>
+                              <span className="font-medium text-gray-700">
+                                Reserved:
+                              </span>{" "}
+                              {breakdown.reserved}
+                            </span>
+                          )}
+                          {/* Only show In-Transit for serialized items */}
+                          {item.item_is_serialized &&
+                            breakdown.inTransit > 0 && (
+                              <span>
+                                <span className="font-medium text-gray-700">
+                                  In-Transit:
+                                </span>{" "}
+                                {breakdown.inTransit}
+                              </span>
+                            )}
+                          {breakdown.outOfService > 0 && (
+                            <span>
+                              <span className="font-medium text-gray-700">
+                                Out-of-Service:
+                              </span>{" "}
+                              {breakdown.outOfService}
+                            </span>
+                          )}
+                          <span>
+                            <span className="font-medium text-gray-700">
+                              Total:
+                            </span>{" "}
+                            {breakdown.total}
                           </span>
                         </div>
                       </div>
