@@ -66,7 +66,7 @@ export default function SortableGroup({
 
   return (
     <div ref={setNodeRef} style={style}>
-      <div className="flex items-start gap-2 group">
+      <div className="flex items-start gap-0 sm:gap-2 group">
         {mounted && (
           <div
             {...attributes}
