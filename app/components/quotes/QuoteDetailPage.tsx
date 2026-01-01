@@ -255,7 +255,7 @@ export default function QuoteDetailPage({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto p-8">
+      <div className="max-w-7xl mx-auto p-4 sm:p-8">
         {/* Header */}
         <div className="mb-6">
           <Link
@@ -264,16 +264,16 @@ export default function QuoteDetailPage({
           >
             ← Back to Quotes
           </Link>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold text-gray-900">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-2">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 truncate">
                   {quote.name}
                 </h1>
                 {/* Event-level risk indicator */}
                 {quote.items.length > 0 && (
                   <div
-                    className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 ${
+                    className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium flex items-center gap-2 whitespace-nowrap ${
                       riskLevel === "green"
                         ? "bg-green-100 text-green-800"
                         : riskLevel === "yellow"
@@ -290,23 +290,32 @@ export default function QuoteDetailPage({
                             : "bg-red-600"
                       }`}
                     />
-                    {riskLevel === "green"
-                      ? "Sufficient inventory"
-                      : riskLevel === "yellow"
-                        ? "Tight availability"
-                        : "Insufficient inventory"}
+                    <span className="hidden sm:inline">
+                      {riskLevel === "green"
+                        ? "Sufficient inventory"
+                        : riskLevel === "yellow"
+                          ? "Tight availability"
+                          : "Insufficient inventory"}
+                    </span>
+                    <span className="sm:hidden">
+                      {riskLevel === "green"
+                        ? "Sufficient"
+                        : riskLevel === "yellow"
+                          ? "Tight"
+                          : "Insufficient"}
+                    </span>
                   </div>
                 )}
               </div>
-              <p className="text-gray-600 mt-1">
+              <p className="text-sm sm:text-base text-gray-600">
                 {new Date(quote.start_date).toLocaleDateString()} -{" "}
                 {new Date(quote.end_date).toLocaleDateString()} ({numberOfDays}{" "}
                 days)
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
               <span
-                className={`px-3 py-1 rounded-full text-sm font-medium ${
+                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium text-center sm:text-left whitespace-nowrap ${
                   quote.status === "draft"
                     ? "bg-gray-100 text-gray-800"
                     : quote.status === "sent"
@@ -320,7 +329,7 @@ export default function QuoteDetailPage({
               </span>
               <button
                 onClick={handleDeleteQuote}
-                className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
+                className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
               >
                 Delete Event
               </button>
@@ -329,12 +338,12 @@ export default function QuoteDetailPage({
         </div>
 
         {/* Items Section */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Items</h2>
             <button
               onClick={() => setShowAddItemModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
+              className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
             >
               + Add Item
             </button>
@@ -370,19 +379,19 @@ export default function QuoteDetailPage({
                     key={item.id}
                     className="p-4 bg-gray-50 rounded-lg border border-gray-200"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h3 className="font-medium text-gray-900">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <h3 className="font-medium text-gray-900 truncate">
                             {item.item_name || "Unknown Item"}
                           </h3>
                           {isOverAvailable && (
-                            <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded">
+                            <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded whitespace-nowrap">
                               Over available ({breakdown.available} available)
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
+                        <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm text-gray-600 mb-2">
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => {
@@ -390,7 +399,7 @@ export default function QuoteDetailPage({
                                 updateQuantity(item.id, newQty);
                               }}
                               disabled={displayQuantity <= 0}
-                              className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <svg
                                 className="w-4 h-4"
@@ -445,14 +454,14 @@ export default function QuoteDetailPage({
                                   updateQuantity(item.id, 0);
                                 }
                               }}
-                              className="w-16 px-2 py-1 text-center font-medium border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-16 sm:w-16 px-2 py-1.5 sm:py-1 text-center font-medium border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                             <button
                               onClick={() => {
                                 const newQty = displayQuantity + 1;
                                 updateQuantity(item.id, newQty);
                               }}
-                              className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors"
+                              className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors"
                             >
                               <svg
                                 className="w-4 h-4"
@@ -469,21 +478,23 @@ export default function QuoteDetailPage({
                               </svg>
                             </button>
                           </div>
-                          <span>× ${item.unit_price_snapshot.toFixed(2)}</span>
-                          <span>
+                          <span className="whitespace-nowrap">
+                            × ${item.unit_price_snapshot.toFixed(2)}
+                          </span>
+                          <span className="whitespace-nowrap">
                             × {numberOfDays} day{numberOfDays !== 1 ? "s" : ""}
                           </span>
                         </div>
                         {/* Availability breakdown */}
-                        <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
-                          <span>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-gray-500">
+                          <span className="whitespace-nowrap">
                             <span className="font-medium text-gray-700">
                               Available:
                             </span>{" "}
                             {breakdown.available}
                           </span>
                           {realTimeReserved > 0 && (
-                            <span>
+                            <span className="whitespace-nowrap">
                               <span className="font-medium text-gray-700">
                                 Reserved:
                               </span>{" "}
@@ -493,7 +504,7 @@ export default function QuoteDetailPage({
                           {/* Only show In-Transit for serialized items */}
                           {item.item_is_serialized &&
                             breakdown.inTransit > 0 && (
-                              <span>
+                              <span className="whitespace-nowrap">
                                 <span className="font-medium text-gray-700">
                                   In-Transit:
                                 </span>{" "}
@@ -501,14 +512,14 @@ export default function QuoteDetailPage({
                               </span>
                             )}
                           {breakdown.outOfService > 0 && (
-                            <span>
+                            <span className="whitespace-nowrap">
                               <span className="font-medium text-gray-700">
                                 Out-of-Service:
                               </span>{" "}
                               {breakdown.outOfService}
                             </span>
                           )}
-                          <span>
+                          <span className="whitespace-nowrap">
                             <span className="font-medium text-gray-700">
                               Total:
                             </span>{" "}
@@ -516,8 +527,8 @@ export default function QuoteDetailPage({
                           </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
+                      <div className="flex items-center justify-between sm:justify-end gap-4 sm:flex-col sm:items-end">
+                        <div className="text-right sm:text-right">
                           <div className="text-sm font-semibold text-gray-900">
                             ${lineTotal.toFixed(2)}
                           </div>
@@ -527,7 +538,7 @@ export default function QuoteDetailPage({
                         </div>
                         <button
                           onClick={() => handleDeleteItem(item.id)}
-                          className="p-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                          className="p-2 sm:p-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors flex-shrink-0"
                         >
                           <svg
                             className="w-5 h-5"
@@ -553,7 +564,7 @@ export default function QuoteDetailPage({
         </div>
 
         {/* Summary */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
           <div className="space-y-2">
             <div className="flex justify-between text-sm text-gray-600">
               <span>Days</span>

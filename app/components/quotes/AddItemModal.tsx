@@ -124,15 +124,15 @@ export default function AddItemModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] flex flex-col shadow-xl">
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] sm:max-h-[80vh] flex flex-col shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900">
             Add Item to Quote
           </h3>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
+            className="p-1.5 sm:p-1 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
           >
             <svg
               className="w-5 h-5"
@@ -163,7 +163,7 @@ export default function AddItemModal({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Type to search..."
-                  className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2.5 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
                 />
                 {isSearching && (
@@ -244,7 +244,7 @@ export default function AddItemModal({
                   min="1"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
-                  className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2.5 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
                 />
                 {/* Buffer suggestions */}
@@ -274,7 +274,7 @@ export default function AddItemModal({
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3 justify-end mt-4 pt-4 border-t border-gray-200">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:justify-end mt-4 pt-4 border-t border-gray-200">
           {showQuantityPrompt ? (
             <>
               <button
@@ -283,13 +283,13 @@ export default function AddItemModal({
                   setSelectedItem(null);
                   setQuantity("1");
                 }}
-                className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+                className="w-full sm:w-auto px-4 py-2.5 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
               >
                 Back
               </button>
               <button
                 onClick={handleConfirmAdd}
-                className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+                className="w-full sm:w-auto px-4 py-2.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
               >
                 Add to Quote
               </button>
@@ -297,7 +297,7 @@ export default function AddItemModal({
           ) : (
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+              className="w-full sm:w-auto px-4 py-2.5 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
             >
               Cancel
             </button>

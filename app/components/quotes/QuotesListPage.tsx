@@ -50,16 +50,20 @@ export default function QuotesListPage({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Quotes</h1>
-            <p className="text-gray-600">Manage your rental quotes</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+              Quotes
+            </h1>
+            <p className="text-sm sm:text-base text-gray-600">
+              Manage your rental quotes
+            </p>
           </div>
           <button
             onClick={() => setShowCreateForm(true)}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
+            className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
           >
             <svg
               className="mr-2 h-5 w-5"
@@ -84,8 +88,8 @@ export default function QuotesListPage({
             onSubmit={handleCreateQuote}
             className="mb-6 p-4 bg-white rounded-lg shadow-sm border border-gray-200"
           >
-            <div className="flex gap-4 items-end">
-              <div className="flex-1">
+            <div className="flex flex-col sm:flex-row gap-4 sm:items-end">
+              <div className="flex-1 w-full">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Quote Name
                 </label>
@@ -94,10 +98,10 @@ export default function QuotesListPage({
                   name="name"
                   required
                   placeholder="e.g., Summer Event 2024"
-                  className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2.5 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div>
+              <div className="w-full sm:w-auto">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Start Date
                 </label>
@@ -105,10 +109,10 @@ export default function QuotesListPage({
                   type="date"
                   name="start_date"
                   required
-                  className="px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full sm:w-auto px-3 py-2.5 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div>
+              <div className="w-full sm:w-auto">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   End Date
                 </label>
@@ -116,21 +120,21 @@ export default function QuotesListPage({
                   type="date"
                   name="end_date"
                   required
-                  className="px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full sm:w-auto px-3 py-2.5 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
+                  className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
                 >
                   {isCreating ? "Creating..." : "Create"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowCreateForm(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+                  className="w-full sm:w-auto px-4 py-2.5 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
                 >
                   Cancel
                 </button>
@@ -181,19 +185,19 @@ export default function QuotesListPage({
                     href={`/quotes/${quote.id}`}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
                           {quote.name}
                         </h3>
-                        <p className="text-sm text-gray-600 mt-1">
+                        <p className="text-xs sm:text-sm text-gray-600 mt-1">
                           {startDate.toLocaleDateString()} -{" "}
                           {endDate.toLocaleDateString()} ({days} days)
                         </p>
                       </div>
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-3 sm:gap-4">
                         <span
-                          className={`px-3 py-1 rounded-full text-sm font-medium ${
+                          className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap ${
                             quote.status === "draft"
                               ? "bg-gray-100 text-gray-800"
                               : quote.status === "sent"
@@ -207,7 +211,7 @@ export default function QuotesListPage({
                             quote.status.slice(1)}
                         </span>
                         <svg
-                          className="w-5 h-5 text-gray-400"
+                          className="w-5 h-5 text-gray-400 flex-shrink-0"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"

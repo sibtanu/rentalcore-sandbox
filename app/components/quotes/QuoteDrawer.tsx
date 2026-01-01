@@ -114,13 +114,13 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
 
       {/* Drawer Panel */}
       <div
-        className={`fixed inset-y-0 right-0 w-full max-w-2xl bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out ${
+        className={`fixed inset-y-0 right-0 w-full sm:w-full md:max-w-2xl bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         <div className="h-full flex flex-col">
           {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
+          <div className="px-4 sm:px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
             <div className="flex-1 min-w-0">
               {isEditingName ? (
                 <input
@@ -142,13 +142,13 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
                 </h2>
               )}
             </div>
-            <div className="flex items-center gap-3">
-              <span className="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium bg-gray-100 text-gray-800">
                 Draft
               </span>
               <button
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-gray-400 hover:text-gray-600 transition-colors p-1"
               >
                 <svg
                   className="w-6 h-6"
@@ -168,14 +168,14 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
             <div className="space-y-6">
               {/* Date Range */}
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">
                   Rental Period
                 </h4>
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-4">
                   <div className="flex-1">
                     <label className="block text-xs text-gray-600 mb-1">
                       Start Date
@@ -209,11 +209,11 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
 
               {/* Items Section */}
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
                   <h4 className="text-sm font-semibold text-gray-700">Items</h4>
                   <button
                     onClick={() => setShowAddItemModal(true)}
-                    className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
+                    className="w-full sm:w-auto px-3 py-2 sm:py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
                   >
                     + Add Item
                   </button>
@@ -233,10 +233,10 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
                           key={item.id}
                           className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors group"
                         >
-                          <div className="flex items-start justify-between gap-4">
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                             <div className="flex items-start gap-3 flex-1 min-w-0">
                               {/* Drag handle (placeholder for future drag-and-drop) */}
-                              <div className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing pt-1">
+                              <div className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing pt-1 flex-shrink-0">
                                 <svg
                                   className="w-5 h-5 text-gray-400"
                                   fill="none"
@@ -252,16 +252,16 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
                                 </svg>
                               </div>
                               <div className="flex-1 min-w-0">
-                                <h5 className="font-medium text-gray-900 mb-2">
+                                <h5 className="font-medium text-gray-900 mb-2 truncate">
                                   {item.itemName}
                                 </h5>
-                                <div className="flex items-center gap-4 text-sm text-gray-600">
+                                <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm text-gray-600">
                                   <div className="flex items-center gap-2">
                                     <button
                                       onClick={() =>
                                         handleQuantityChange(item.id, -1)
                                       }
-                                      className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors"
+                                      className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors"
                                     >
                                       <svg
                                         className="w-4 h-4"
@@ -284,7 +284,7 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
                                       onClick={() =>
                                         handleQuantityChange(item.id, 1)
                                       }
-                                      className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors"
+                                      className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors"
                                     >
                                       <svg
                                         className="w-4 h-4"
@@ -301,9 +301,11 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
                                       </svg>
                                     </button>
                                   </div>
-                                  <span>× ${item.unitPrice.toFixed(2)}</span>
+                                  <span className="whitespace-nowrap">
+                                    × ${item.unitPrice.toFixed(2)}
+                                  </span>
                                   {numberOfDays > 0 && (
-                                    <span>
+                                    <span className="whitespace-nowrap">
                                       × {numberOfDays} day
                                       {numberOfDays !== 1 ? "s" : ""}
                                     </span>
@@ -311,8 +313,8 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
                                 </div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-4">
-                              <div className="text-right">
+                            <div className="flex items-center justify-between sm:justify-end gap-4 sm:flex-col sm:items-end">
+                              <div className="text-right sm:text-right">
                                 <div className="text-sm font-semibold text-gray-900">
                                   ${lineTotal.toFixed(2)}
                                 </div>
@@ -322,7 +324,7 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
                               </div>
                               <button
                                 onClick={() => handleRemoveItem(item.id)}
-                                className="p-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                className="p-2 sm:p-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors flex-shrink-0"
                                 title="Remove item"
                               >
                                 <svg
@@ -351,7 +353,7 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
           </div>
 
           {/* Pricing Summary (Sticky Bottom) */}
-          <div className="border-t border-gray-200 bg-white px-6 py-4">
+          <div className="border-t border-gray-200 bg-white px-4 sm:px-6 py-4">
             <div className="space-y-2">
               <div className="flex justify-between text-sm text-gray-600">
                 <span>Days</span>
