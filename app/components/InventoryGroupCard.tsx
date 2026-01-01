@@ -886,6 +886,7 @@ export default function InventoryGroupCard({
             <table className="w-full border-collapse min-w-[400px]">
               <thead>
                 <tr className="border-b-2 border-gray-300">
+                  <th className="w-4 py-3 px-3 sm:px-4"></th>
                   <th className="text-left py-3 px-3 sm:px-4 font-semibold text-gray-700 text-sm sm:text-base">
                     Item
                   </th>
@@ -916,6 +917,7 @@ export default function InventoryGroupCard({
           <table className="w-full border-collapse min-w-[400px]">
             <thead>
               <tr className="border-b-2 border-gray-300">
+                <th className="w-4 py-3 px-3 sm:px-4"></th>
                 <th className="text-left py-3 px-3 sm:px-4 font-semibold text-gray-700 text-sm sm:text-base">
                   Item
                 </th>
@@ -931,6 +933,7 @@ export default function InventoryGroupCard({
                   onClick={() => setSelectedItem(item)}
                   className="border-b border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
                 >
+                  <td className="w-4 py-3 px-3 sm:px-4"></td>
                   <td className="py-3 px-3 sm:px-4 text-gray-900 font-medium flex items-center gap-2 text-sm sm:text-base">
                     <span className="truncate flex-1 min-w-0">{item.name}</span>
                     {item.total === 0 && (
