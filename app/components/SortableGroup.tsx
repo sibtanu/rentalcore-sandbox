@@ -66,7 +66,7 @@ export default function SortableGroup({
 
   return (
     <div ref={setNodeRef} style={style}>
-      <div className="flex items-start gap-0 sm:gap-2 group">
+      <div className="block sm:flex sm:items-start sm:gap-2 group">
         {mounted && (
           <div
             {...attributes}
@@ -88,7 +88,7 @@ export default function SortableGroup({
             </svg>
           </div>
         )}
-        <div className="flex-1">
+        <div className="sm:flex-1">
           <InventoryGroupCard
             group={group}
             createItem={createItem}
