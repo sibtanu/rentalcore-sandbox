@@ -11,6 +11,8 @@ interface InventoryItem {
   is_serialized?: boolean;
   available?: number;
   total?: number;
+  effectiveAvailable?: number;
+  reservedInOverlappingEvents?: number;
 }
 
 interface AddItemModalProps {
@@ -22,12 +24,18 @@ interface AddItemModalProps {
     quantity: number,
   ) => void;
   existingQuoteItems: QuoteItem[];
+  quoteContext?: {
+    quoteId: string;
+    startDate: string;
+    endDate: string;
+  };
 }
 
 export default function AddItemModal({
   onClose,
   onAddItem,
   existingQuoteItems,
+  quoteContext,
 }: AddItemModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<InventoryItem[]>([]);
@@ -60,7 +68,7 @@ export default function AddItemModal({
     setIsSearching(true);
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const results = await searchInventoryItems(searchQuery);
+        const results = await searchInventoryItems(searchQuery, quoteContext);
         setSearchResults(results);
       } catch (error) {
         console.error("Error searching items:", error);
@@ -75,7 +83,7 @@ export default function AddItemModal({
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery]);
+  }, [searchQuery, quoteContext]);
 
   const handleSelectItem = (item: InventoryItem) => {
     // Prevent selecting items that are already in the quote
@@ -104,6 +112,17 @@ export default function AddItemModal({
       return [baseQty + buffer];
     }
     return [];
+  }, [selectedItem, quantity]);
+
+  // Check if quantity exceeds effective available
+  const quantityExceedsAvailable = useMemo(() => {
+    if (!selectedItem) return false;
+    const qty = parseInt(quantity, 10) || 0;
+    const effectiveAvailable =
+      selectedItem.effectiveAvailable !== undefined
+        ? selectedItem.effectiveAvailable
+        : selectedItem.available;
+    return effectiveAvailable !== undefined && qty > effectiveAvailable;
   }, [selectedItem, quantity]);
 
   const handleConfirmAdd = () => {
@@ -205,12 +224,30 @@ export default function AddItemModal({
                             </div>
                             <div className="flex items-center gap-3 text-sm text-gray-600">
                               <span>${item.price.toFixed(2)}</span>
-                              {item.available !== undefined && (
+                              {item.effectiveAvailable !== undefined ? (
+                                <span
+                                  className={`text-xs ${
+                                    item.effectiveAvailable === 0
+                                      ? "text-red-600 font-medium"
+                                      : item.effectiveAvailable < 5
+                                        ? "text-yellow-600"
+                                        : "text-gray-500"
+                                  }`}
+                                >
+                                  ({item.effectiveAvailable} / {item.total || 0}{" "}
+                                  effective available
+                                  {item.reservedInOverlappingEvents &&
+                                  item.reservedInOverlappingEvents > 0
+                                    ? `, ${item.reservedInOverlappingEvents} reserved in overlapping events`
+                                    : ""}
+                                  )
+                                </span>
+                              ) : item.available !== undefined ? (
                                 <span className="text-xs text-gray-500">
                                   ({item.available} / {item.total || 0}{" "}
                                   available)
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           </button>
                         );
@@ -231,6 +268,20 @@ export default function AddItemModal({
                   <div className="text-sm text-gray-600">
                     Price: ${selectedItem.price.toFixed(2)}
                   </div>
+                  {selectedItem.effectiveAvailable !== undefined && (
+                    <div className="text-sm text-gray-600 mt-1">
+                      Effective Available: {selectedItem.effectiveAvailable} /{" "}
+                      {selectedItem.total || 0}
+                      {selectedItem.reservedInOverlappingEvents &&
+                      selectedItem.reservedInOverlappingEvents > 0 ? (
+                        <span className="text-xs text-gray-500">
+                          {" "}
+                          ({selectedItem.reservedInOverlappingEvents} reserved
+                          in overlapping events)
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -244,9 +295,24 @@ export default function AddItemModal({
                   min="1"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-white text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full px-3 py-2.5 bg-white text-gray-900 border rounded-md focus:outline-none focus:ring-2 ${
+                    quantityExceedsAvailable
+                      ? "border-red-300 focus:ring-red-500"
+                      : "border-gray-300 focus:ring-blue-500"
+                  }`}
                   autoFocus
                 />
+                {quantityExceedsAvailable && (
+                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                    <p className="text-sm text-red-800">
+                      Quantity exceeds effective available (
+                      {selectedItem?.effectiveAvailable !== undefined
+                        ? selectedItem.effectiveAvailable
+                        : selectedItem?.available || 0}
+                      )
+                    </p>
+                  </div>
+                )}
                 {/* Buffer suggestions */}
                 {bufferSuggestions.length > 0 && (
                   <div className="mt-2">

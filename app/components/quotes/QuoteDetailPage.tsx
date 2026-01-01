@@ -63,13 +63,17 @@ export default function QuoteDetailPage({
     setLocalQuantities(newQuantities);
   }, [initialQuote]);
 
-  // Fetch availability breakdowns for all items
+  // Fetch availability breakdowns for all items with quote context for date-aware calculation
   useEffect(() => {
     const fetchAvailabilities = async () => {
       const availMap = new Map<string, ItemAvailabilityBreakdown>();
       for (const item of quote.items) {
         try {
-          const breakdown = await getItemAvailabilityBreakdown(item.item_id);
+          const breakdown = await getItemAvailabilityBreakdown(item.item_id, {
+            quoteId: quote.id,
+            startDate: quote.start_date,
+            endDate: quote.end_date,
+          });
           availMap.set(item.item_id, breakdown);
         } catch (error) {
           console.error(
@@ -86,7 +90,7 @@ export default function QuoteDetailPage({
     } else {
       setItemAvailabilities(new Map());
     }
-  }, [quote.items]);
+  }, [quote.items, quote.id, quote.start_date, quote.end_date]);
 
   // Calculate event-level risk indicator (using local quantities for real-time updates)
   const riskLevel = useMemo<RiskLevel>(() => {
@@ -372,7 +376,12 @@ export default function QuoteDetailPage({
                 const realTimeReserved = displayQuantity;
                 const lineTotal =
                   displayQuantity * item.unit_price_snapshot * numberOfDays;
-                const isOverAvailable = displayQuantity > breakdown.available;
+                // Use effectiveAvailable if available (date-aware), otherwise fall back to available
+                const effectiveAvailable =
+                  breakdown.effectiveAvailable !== undefined
+                    ? breakdown.effectiveAvailable
+                    : breakdown.available;
+                const isOverAvailable = displayQuantity > effectiveAvailable;
 
                 return (
                   <div
@@ -386,8 +395,15 @@ export default function QuoteDetailPage({
                             {item.item_name || "Unknown Item"}
                           </h3>
                           {isOverAvailable && (
-                            <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded whitespace-nowrap">
-                              Over available ({breakdown.available} available)
+                            <span
+                              className={`px-2 py-0.5 text-xs rounded whitespace-nowrap ${
+                                effectiveAvailable === 0
+                                  ? "bg-red-100 text-red-800"
+                                  : "bg-yellow-100 text-yellow-800"
+                              }`}
+                            >
+                              Over available ({effectiveAvailable} effective
+                              available)
                             </span>
                           )}
                         </div>
@@ -489,10 +505,24 @@ export default function QuoteDetailPage({
                         <div className="mt-2 flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-gray-500">
                           <span className="whitespace-nowrap">
                             <span className="font-medium text-gray-700">
-                              Available:
+                              {breakdown.effectiveAvailable !== undefined
+                                ? "Effective Available:"
+                                : "Available:"}
                             </span>{" "}
-                            {breakdown.available}
+                            {breakdown.effectiveAvailable !== undefined
+                              ? breakdown.effectiveAvailable
+                              : breakdown.available}
                           </span>
+                          {breakdown.reservedInOverlappingEvents !==
+                            undefined &&
+                            breakdown.reservedInOverlappingEvents > 0 && (
+                              <span className="whitespace-nowrap">
+                                <span className="font-medium text-gray-700">
+                                  Reserved in overlapping events:
+                                </span>{" "}
+                                {breakdown.reservedInOverlappingEvents}
+                              </span>
+                            )}
                           {realTimeReserved > 0 && (
                             <span className="whitespace-nowrap">
                               <span className="font-medium text-gray-700">
@@ -594,6 +624,11 @@ export default function QuoteDetailPage({
           onClose={() => setShowAddItemModal(false)}
           onAddItem={handleAddItem}
           existingQuoteItems={quote.items}
+          quoteContext={{
+            quoteId: quote.id,
+            startDate: quote.start_date,
+            endDate: quote.end_date,
+          }}
         />
       )}
     </div>

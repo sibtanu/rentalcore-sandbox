@@ -298,7 +298,14 @@ export async function deleteQuoteItem(formData: FormData) {
   return { success: true };
 }
 
-export async function searchInventoryItems(query: string) {
+export async function searchInventoryItems(
+  query: string,
+  quoteContext?: {
+    quoteId: string;
+    startDate: string;
+    endDate: string;
+  },
+) {
   const searchTerm = `%${query.toLowerCase()}%`;
 
   const { data: items, error } = await supabase
@@ -322,44 +329,67 @@ export async function searchInventoryItems(query: string) {
     return [];
   }
 
-  // Fetch availability for each item
+  // Fetch availability for each item (use getItemAvailabilityBreakdown for date-aware calculation if quoteContext provided)
   const itemsWithAvailability = await Promise.all(
     items.map(async (item) => {
-      let available = 0;
-      let total = 0;
-
-      if (item.is_serialized) {
-        const { data: units } = await supabase
-          .from("inventory_units")
-          .select("status")
-          .eq("item_id", item.id);
-
-        if (units) {
-          total = units.length;
-          available = units.filter((u) => u.status === "available").length;
-        }
+      if (quoteContext) {
+        // Use date-aware availability calculation
+        const { getItemAvailabilityBreakdown } = await import("@/lib/quotes");
+        const breakdown = await getItemAvailabilityBreakdown(
+          item.id,
+          quoteContext,
+        );
+        return {
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          is_serialized: item.is_serialized,
+          available:
+            breakdown.effectiveAvailable !== undefined
+              ? breakdown.effectiveAvailable
+              : breakdown.available,
+          total: breakdown.total,
+          effectiveAvailable: breakdown.effectiveAvailable,
+          reservedInOverlappingEvents: breakdown.reservedInOverlappingEvents,
+        };
       } else {
-        const { data: stock } = await supabase
-          .from("inventory_stock")
-          .select("total_quantity, out_of_service_quantity")
-          .eq("item_id", item.id)
-          .single();
+        // Fallback to simple availability calculation
+        let available = 0;
+        let total = 0;
 
-        if (stock) {
-          total = stock.total_quantity;
-          available =
-            stock.total_quantity - (stock.out_of_service_quantity || 0);
+        if (item.is_serialized) {
+          const { data: units } = await supabase
+            .from("inventory_units")
+            .select("status")
+            .eq("item_id", item.id);
+
+          if (units) {
+            total = units.length;
+            available = units.filter((u) => u.status === "available").length;
+          }
+        } else {
+          const { data: stock } = await supabase
+            .from("inventory_stock")
+            .select("total_quantity, out_of_service_quantity")
+            .eq("item_id", item.id)
+            .single();
+
+          if (stock) {
+            total = stock.total_quantity;
+            available =
+              stock.total_quantity - (stock.out_of_service_quantity || 0);
+          }
         }
-      }
 
-      return {
-        id: item.id,
-        name: item.name,
-        price: item.price,
-        is_serialized: item.is_serialized,
-        available,
-        total,
-      };
+        return {
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          is_serialized: item.is_serialized,
+          available,
+          total,
+        };
+      }
     }),
   );
 

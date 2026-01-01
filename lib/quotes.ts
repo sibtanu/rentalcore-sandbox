@@ -36,6 +36,8 @@ export interface ItemAvailabilityBreakdown {
   inTransit: number; // Units with status "out" (serialized) or out_of_service_quantity (non-serialized)
   outOfService: number; // Units with status "maintenance" (serialized) or 0 (non-serialized)
   total: number;
+  effectiveAvailable?: number; // total - out_of_service - reserved_in_overlapping_events
+  reservedInOverlappingEvents?: number; // Sum from other overlapping quotes/events
 }
 
 export async function getQuotes(): Promise<Quote[]> {
@@ -202,10 +204,88 @@ export async function getReservedQuantity(itemId: string): Promise<number> {
 }
 
 /**
+ * Check if two date ranges overlap
+ */
+function dateRangesOverlap(
+  start1: string,
+  end1: string,
+  start2: string,
+  end2: string,
+): boolean {
+  const startDate1 = new Date(start1);
+  const endDate1 = new Date(end1);
+  const startDate2 = new Date(start2);
+  const endDate2 = new Date(end2);
+
+  // Two ranges overlap if: start1 <= end2 && start2 <= end1
+  return startDate1 <= endDate2 && startDate2 <= endDate1;
+}
+
+/**
+ * Get reserved quantity for an item from OTHER overlapping quotes/events (excluding current quote)
+ * Read-only calculation - no mutations
+ */
+export async function getReservedQuantityFromOverlappingEvents(
+  itemId: string,
+  excludeQuoteId: string,
+  quoteStartDate: string,
+  quoteEndDate: string,
+): Promise<number> {
+  const tenantId = "11111111-1111-1111-1111-111111111111";
+
+  // Fetch all quotes with their items for this item_id, excluding the current quote
+  const { data: quoteItems, error } = await supabase
+    .from("quote_items")
+    .select(
+      `
+      quantity,
+      quote_id,
+      quotes:quote_id (
+        id,
+        start_date,
+        end_date
+      )
+    `,
+    )
+    .eq("item_id", itemId)
+    .neq("quote_id", excludeQuoteId);
+
+  if (error || !quoteItems) {
+    return 0;
+  }
+
+  // Filter to only overlapping quotes and sum their quantities
+  let reserved = 0;
+  for (const qi of quoteItems) {
+    const quote = qi.quotes as any;
+    if (
+      quote &&
+      dateRangesOverlap(
+        quoteStartDate,
+        quoteEndDate,
+        quote.start_date,
+        quote.end_date,
+      )
+    ) {
+      reserved += qi.quantity;
+    }
+  }
+
+  return reserved;
+}
+
+/**
  * Get detailed availability breakdown for an item
+ * @param itemId - The item ID
+ * @param quoteContext - Optional quote context for date-aware availability calculation
  */
 export async function getItemAvailabilityBreakdown(
   itemId: string,
+  quoteContext?: {
+    quoteId: string;
+    startDate: string;
+    endDate: string;
+  },
 ): Promise<ItemAvailabilityBreakdown> {
   const tenantId = "11111111-1111-1111-1111-111111111111";
 
@@ -227,8 +307,20 @@ export async function getItemAvailabilityBreakdown(
     };
   }
 
-  // Get reserved quantity from quote_items
+  // Get reserved quantity from quote_items (all quotes, for backward compatibility)
   const reserved = await getReservedQuantity(itemId);
+
+  // Get reserved quantity from overlapping events (if quote context provided)
+  let reservedInOverlappingEvents = 0;
+  if (quoteContext) {
+    reservedInOverlappingEvents =
+      await getReservedQuantityFromOverlappingEvents(
+        itemId,
+        quoteContext.quoteId,
+        quoteContext.startDate,
+        quoteContext.endDate,
+      );
+  }
 
   if (item.is_serialized) {
     // For serialized items, count units by status
@@ -252,12 +344,22 @@ export async function getItemAvailabilityBreakdown(
     const inTransit = units.filter((u) => u.status === "out").length;
     const outOfService = units.filter((u) => u.status === "maintenance").length;
 
+    // Calculate effective available: total - out_of_service - reserved_in_overlapping_events
+    const effectiveAvailable = Math.max(
+      0,
+      total - outOfService - reservedInOverlappingEvents,
+    );
+
     return {
       available,
       reserved,
       inTransit,
       outOfService,
       total,
+      effectiveAvailable: quoteContext ? effectiveAvailable : undefined,
+      reservedInOverlappingEvents: quoteContext
+        ? reservedInOverlappingEvents
+        : undefined,
     };
   } else {
     // For non-serialized items, check stock
@@ -283,12 +385,22 @@ export async function getItemAvailabilityBreakdown(
     // For non-serialized items, In-Transit does not apply (always 0)
     const inTransit = 0;
 
+    // Calculate effective available: total - out_of_service - reserved_in_overlapping_events
+    const effectiveAvailable = Math.max(
+      0,
+      total - outOfService - reservedInOverlappingEvents,
+    );
+
     return {
       available,
       reserved,
       inTransit,
       outOfService,
       total,
+      effectiveAvailable: quoteContext ? effectiveAvailable : undefined,
+      reservedInOverlappingEvents: quoteContext
+        ? reservedInOverlappingEvents
+        : undefined,
     };
   }
 }
@@ -349,7 +461,11 @@ export function calculateQuoteRisk(
       breakdown.total,
       requested,
     );
-    const available = breakdown.available;
+    // Use effectiveAvailable if available (date-aware), otherwise fall back to available
+    const available =
+      breakdown.effectiveAvailable !== undefined
+        ? breakdown.effectiveAvailable
+        : breakdown.available;
 
     if (available < requested) {
       hasRed = true;
