@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { QuoteWithItems } from "@/lib/quotes";
@@ -45,10 +45,22 @@ export default function QuoteDetailPage({
   const [itemAvailabilities, setItemAvailabilities] = useState<
     Map<string, ItemAvailabilityBreakdown>
   >(new Map());
+  // Local quantity state for instant UI updates (quoteItemId -> quantity string)
+  const [localQuantities, setLocalQuantities] = useState<Map<string, string>>(
+    new Map(),
+  );
+  // Debounce timers for each quote item
+  const debounceTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   // Sync quote when initialQuote changes (after router.refresh())
   useEffect(() => {
     setQuote(initialQuote);
+    // Sync local quantities with server data
+    const newQuantities = new Map<string, string>();
+    initialQuote.items.forEach((item) => {
+      newQuantities.set(item.id, item.quantity.toString());
+    });
+    setLocalQuantities(newQuantities);
   }, [initialQuote]);
 
   // Fetch availability breakdowns for all items
@@ -76,18 +88,25 @@ export default function QuoteDetailPage({
     }
   }, [quote.items]);
 
-  // Calculate event-level risk indicator
+  // Calculate event-level risk indicator (using local quantities for real-time updates)
   const riskLevel = useMemo<RiskLevel>(() => {
     if (quote.items.length === 0) return "green";
     return calculateQuoteRisk(
-      quote.items.map((item) => ({
-        item_id: item.item_id,
-        quantity: item.quantity,
-        item_is_serialized: item.item_is_serialized,
-      })),
+      quote.items.map((item) => {
+        // Use local quantity if available, otherwise fall back to server quantity
+        const localQuantityStr = localQuantities.get(item.id);
+        const quantity = localQuantityStr
+          ? parseInt(localQuantityStr, 10) || 0
+          : item.quantity;
+        return {
+          item_id: item.item_id,
+          quantity,
+          item_is_serialized: item.item_is_serialized,
+        };
+      }),
       itemAvailabilities,
     );
-  }, [quote.items, itemAvailabilities]);
+  }, [quote.items, itemAvailabilities, localQuantities]);
 
   const handleAddItem = async (
     itemId: string,
@@ -95,20 +114,51 @@ export default function QuoteDetailPage({
     unitPrice: number,
     quantity: number,
   ) => {
-    const formData = new FormData();
-    formData.append("quote_id", quote.id);
-    formData.append("item_id", itemId);
-    formData.append("quantity", quantity.toString());
+    // Check if item already exists in this quote
+    const existingItem = quote.items.find((item) => item.item_id === itemId);
 
-    const result = await addQuoteItem(formData);
-    if (result.success) {
-      router.refresh();
-    } else if (result.error) {
-      alert(result.error);
+    if (existingItem) {
+      // Item exists: increment quantity using local quantity if available
+      const localQuantityStr = localQuantities.get(existingItem.id);
+      const currentQuantity = localQuantityStr
+        ? parseInt(localQuantityStr, 10) || 0
+        : existingItem.quantity;
+      const newQuantity = currentQuantity + quantity;
+
+      const formData = new FormData();
+      formData.append("quote_item_id", existingItem.id);
+      formData.append("quantity", newQuantity.toString());
+      formData.append("quote_id", quote.id);
+
+      const result = await updateQuoteItem(formData);
+      if (result.success) {
+        router.refresh();
+      } else if (result.error) {
+        alert(result.error);
+      }
+    } else {
+      // Item doesn't exist: create new quote_item
+      const formData = new FormData();
+      formData.append("quote_id", quote.id);
+      formData.append("item_id", itemId);
+      formData.append("quantity", quantity.toString());
+
+      const result = await addQuoteItem(formData);
+      if (result.success) {
+        router.refresh();
+      } else if (result.error) {
+        alert(result.error);
+      }
     }
   };
 
-  const handleUpdateItem = async (quoteItemId: string, quantity: number) => {
+  // Debounced save function
+  const saveQuantity = async (quoteItemId: string, quantity: number) => {
+    // Validate: integers >= 0 only
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      return;
+    }
+
     const formData = new FormData();
     formData.append("quote_item_id", quoteItemId);
     formData.append("quantity", quantity.toString());
@@ -119,8 +169,49 @@ export default function QuoteDetailPage({
       router.refresh();
     } else if (result.error) {
       alert(result.error);
+      // Revert local quantity on error by syncing with server
+      const item = quote.items.find((i) => i.id === quoteItemId);
+      if (item) {
+        setLocalQuantities((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(quoteItemId, item.quantity.toString());
+          return newMap;
+        });
+      }
     }
   };
+
+  // Update local quantity and schedule debounced save
+  const updateQuantity = (quoteItemId: string, newQuantity: number) => {
+    // Update local state immediately
+    setLocalQuantities((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(quoteItemId, newQuantity.toString());
+      return newMap;
+    });
+
+    // Cancel previous debounce timer for this item
+    const existingTimer = debounceTimersRef.current.get(quoteItemId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    // Schedule new save (300-500ms debounce, using 400ms)
+    const timer = setTimeout(() => {
+      saveQuantity(quoteItemId, newQuantity);
+      debounceTimersRef.current.delete(quoteItemId);
+    }, 400);
+
+    debounceTimersRef.current.set(quoteItemId, timer);
+  };
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      debounceTimersRef.current.forEach((timer) => clearTimeout(timer));
+      debounceTimersRef.current.clear();
+    };
+  }, []);
 
   const handleDeleteItem = async (quoteItemId: string) => {
     const formData = new FormData();
@@ -235,9 +326,16 @@ export default function QuoteDetailPage({
                   outOfService: 0,
                   total: 0,
                 };
+                // Use local quantity if available, otherwise fall back to server quantity
+                const localQuantityStr = localQuantities.get(item.id);
+                const displayQuantity = localQuantityStr
+                  ? parseInt(localQuantityStr, 10) || 0
+                  : item.quantity;
+                // Reserved shows what the user typed (this quote's quantity)
+                const realTimeReserved = displayQuantity;
                 const lineTotal =
-                  item.quantity * item.unit_price_snapshot * numberOfDays;
-                const isOverAvailable = item.quantity > breakdown.available;
+                  displayQuantity * item.unit_price_snapshot * numberOfDays;
+                const isOverAvailable = displayQuantity > breakdown.available;
 
                 return (
                   <div
@@ -259,10 +357,11 @@ export default function QuoteDetailPage({
                         <div className="flex items-center gap-4 text-sm text-gray-600">
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() =>
-                                handleUpdateItem(item.id, item.quantity - 1)
-                              }
-                              disabled={item.quantity <= 1}
+                              onClick={() => {
+                                const newQty = Math.max(0, displayQuantity - 1);
+                                updateQuantity(item.id, newQty);
+                              }}
+                              disabled={displayQuantity <= 0}
                               className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <svg
@@ -279,13 +378,52 @@ export default function QuoteDetailPage({
                                 />
                               </svg>
                             </button>
-                            <span className="w-8 text-center font-medium">
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() =>
-                                handleUpdateItem(item.id, item.quantity + 1)
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={
+                                localQuantityStr ?? item.quantity.toString()
                               }
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                // Allow empty string for typing
+                                if (value === "") {
+                                  // Cancel any pending debounce timer
+                                  const existingTimer =
+                                    debounceTimersRef.current.get(item.id);
+                                  if (existingTimer) {
+                                    clearTimeout(existingTimer);
+                                    debounceTimersRef.current.delete(item.id);
+                                  }
+                                  setLocalQuantities((prev) => {
+                                    const newMap = new Map(prev);
+                                    newMap.set(item.id, "");
+                                    return newMap;
+                                  });
+                                  return;
+                                }
+                                const numValue = parseInt(value, 10);
+                                // Only update if it's a valid integer >= 0
+                                if (!Number.isNaN(numValue) && numValue >= 0) {
+                                  updateQuantity(item.id, numValue);
+                                }
+                              }}
+                              onBlur={(e) => {
+                                const value = e.target.value;
+                                // On blur, if empty or invalid, set to 0
+                                const numValue = parseInt(value, 10);
+                                if (Number.isNaN(numValue) || numValue < 0) {
+                                  updateQuantity(item.id, 0);
+                                }
+                              }}
+                              className="w-16 px-2 py-1 text-center font-medium border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              onClick={() => {
+                                const newQty = displayQuantity + 1;
+                                updateQuantity(item.id, newQty);
+                              }}
                               className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 transition-colors"
                             >
                               <svg
@@ -316,12 +454,12 @@ export default function QuoteDetailPage({
                             </span>{" "}
                             {breakdown.available}
                           </span>
-                          {breakdown.reserved > 0 && (
+                          {realTimeReserved > 0 && (
                             <span>
                               <span className="font-medium text-gray-700">
                                 Reserved:
                               </span>{" "}
-                              {breakdown.reserved}
+                              {realTimeReserved}
                             </span>
                           )}
                           {/* Only show In-Transit for serialized items */}
