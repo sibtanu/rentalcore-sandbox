@@ -882,7 +882,7 @@ export default function InventoryGroupCard({
           collisionDetection={closestCenter}
           onDragEnd={handleItemDragEnd}
         >
-          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+          <div className="overflow-x-auto">
             <table className="w-full border-collapse min-w-[400px]">
               <thead>
                 <tr className="border-b-2 border-gray-300">
@@ -912,14 +912,14 @@ export default function InventoryGroupCard({
           </div>
         </DndContext>
       ) : (
-        <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse min-w-[400px]">
             <thead>
               <tr className="border-b-2 border-gray-300">
                 <th className="text-left py-3 px-3 sm:px-4 font-semibold text-gray-700 text-sm sm:text-base">
                   Item
                 </th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-700 text-sm sm:text-base">
+                <th className="text-right py-3 px-3 sm:px-4 font-semibold text-gray-700 text-sm sm:text-base">
                   Available / Total
                 </th>
               </tr>
