@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { searchInventoryItems } from "@/app/actions/quotes";
-import { calculateBufferQuantity } from "@/lib/quotes";
+import { calculateBufferQuantity, type QuoteItem } from "@/lib/quotes";
 
 interface InventoryItem {
   id: string;
@@ -21,11 +21,13 @@ interface AddItemModalProps {
     unitPrice: number,
     quantity: number,
   ) => void;
+  existingQuoteItems: QuoteItem[];
 }
 
 export default function AddItemModal({
   onClose,
   onAddItem,
+  existingQuoteItems,
 }: AddItemModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<InventoryItem[]>([]);
@@ -34,6 +36,16 @@ export default function AddItemModal({
   const [quantity, setQuantity] = useState("1");
   const [showQuantityPrompt, setShowQuantityPrompt] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Create a set of item_ids that are already in the quote for quick lookup
+  const existingItemIds = useMemo(() => {
+    return new Set(existingQuoteItems.map((item) => item.item_id));
+  }, [existingQuoteItems]);
+
+  // Check if an item is already in the quote
+  const isItemAlreadyAdded = (itemId: string) => {
+    return existingItemIds.has(itemId);
+  };
 
   useEffect(() => {
     if (searchTimeoutRef.current) {
@@ -66,6 +78,10 @@ export default function AddItemModal({
   }, [searchQuery]);
 
   const handleSelectItem = (item: InventoryItem) => {
+    // Prevent selecting items that are already in the quote
+    if (isItemAlreadyAdded(item.id)) {
+      return;
+    }
     setSelectedItem(item);
     setShowQuantityPrompt(true);
     setSearchQuery(item.name);
@@ -164,25 +180,41 @@ export default function AddItemModal({
                     </div>
                   ) : (
                     <div className="divide-y divide-gray-200">
-                      {searchResults.map((item) => (
-                        <button
-                          key={item.id}
-                          onClick={() => handleSelectItem(item)}
-                          className="w-full p-3 text-left hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="font-medium text-gray-900">
-                            {item.name}
-                          </div>
-                          <div className="flex items-center gap-3 text-sm text-gray-600">
-                            <span>${item.price.toFixed(2)}</span>
-                            {item.available !== undefined && (
-                              <span className="text-xs text-gray-500">
-                                ({item.available} / {item.total || 0} available)
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                      {searchResults.map((item) => {
+                        const alreadyAdded = isItemAlreadyAdded(item.id);
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => handleSelectItem(item)}
+                            disabled={alreadyAdded}
+                            className={`w-full p-3 text-left transition-colors ${
+                              alreadyAdded
+                                ? "opacity-50 cursor-not-allowed bg-gray-50"
+                                : "hover:bg-gray-50"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="font-medium text-gray-900">
+                                {item.name}
+                              </div>
+                              {alreadyAdded && (
+                                <span className="text-xs px-2 py-0.5 bg-gray-200 text-gray-700 rounded">
+                                  Already added
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-sm text-gray-600">
+                              <span>${item.price.toFixed(2)}</span>
+                              {item.available !== undefined && (
+                                <span className="text-xs text-gray-500">
+                                  ({item.available} / {item.total || 0}{" "}
+                                  available)
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
