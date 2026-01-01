@@ -381,6 +381,13 @@ export default function QuoteDrawer({ isOpen, onClose }: QuoteDrawerProps) {
         <AddItemModal
           onClose={() => setShowAddItemModal(false)}
           onAddItem={handleAddItem}
+          existingQuoteItems={items.map((item) => ({
+            id: item.id,
+            quote_id: "",
+            item_id: item.itemId,
+            quantity: item.quantity,
+            unit_price_snapshot: item.unitPrice,
+          }))}
         />
       )}
     </>
